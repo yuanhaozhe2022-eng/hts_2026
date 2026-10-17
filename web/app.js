@@ -1,6 +1,6 @@
 import { loadSettings, saveSettings } from "./settings.js";
 import { FULL_LOCK_DEG, Steering, setSteeringReference } from "./steering.js";
-import { PedalBar, HoldButton } from "./controls.js";
+import { AxisSlider, HoldButton, Joystick, PedalBar } from "./controls.js";
 import { Layout } from "./layout.js";
 import { Dash } from "./dash.js";
 import { applyRotation, initRotation, isIOS } from "./orientation.js";
@@ -18,7 +18,7 @@ const steering = new Steering(settings);
 // Learned from a landscape session on this phone; until then guess (iOS reports gravity
 // the other way round from Android). Only matters for the sideways HUD on a locked screen.
 steering.gravitySign = settings.gravitySign ?? (isIOS ? -1 : 1);
-const dash = new Dash($(".dash"));
+const dash = new Dash($(".dash"), settings);
 initRotation($("#hud"));
 $("#ios-tip").hidden = !isIOS;
 const vibrate = (ms) => settings.vibration && navigator.vibrate?.(ms);
@@ -31,6 +31,7 @@ const buttons = {
   shiftDown: new HoldButton($('[data-el="shiftDown"]'), () => vibrate(15)),
   shiftUp: new HoldButton($('[data-el="shiftUp"]'), () => vibrate(15)),
 };
+const customControls = new Map();  // id -> HoldButton / Joystick / AxisSlider (user's own)
 const layout = new Layout($("#hud"), () => {
   for (const bar of Object.values(bars)) bar.updateOrientation();
 });
@@ -38,6 +39,7 @@ const layout = new Layout($("#hud"), () => {
 function releaseAll() {
   for (const bar of Object.values(bars)) bar.release();
   for (const button of Object.values(buttons)) button.release();
+  for (const control of customControls.values()) control.release();
 }
 
 // ---------------------------------------------------------------- connection
@@ -73,6 +75,7 @@ function connect() {
       dash.telemetry(msg);
     } else if (msg.t === "binds") {
       showBindings(msg.buttons, msg.options);
+      showCustom(msg.custom || [], msg.options, msg.keys || [], msg.custom_binds || {});
     } else if (msg.t === "pong" && pings.has(msg.id)) {
       const rtt = performance.now() - pings.get(msg.id);
       pings.delete(msg.id);
@@ -91,6 +94,7 @@ function connect() {
     rumble = 0;
     dash.connection("closed");
     for (const select of bindSelects) select.disabled = true;
+    setCustomEditorEnabled(false);
     if (kicked) return;
     const delay = Math.min(5000, 500 * 2 ** retries++);
     setTimeout(connect, delay);
@@ -104,7 +108,7 @@ function send(msg) {
 const round = (x) => Math.round(x * 10000) / 10000;
 
 function currentInput(neutral = false) {
-  if (neutral) return { t: "in", s: 0, th: 0, br: 0, b: 0 };
+  if (neutral) return { t: "in", s: 0, th: 0, br: 0, b: 0, c: [], a: {} };
   const b = (buttons.shiftDown.pressed ? BTN_SHIFT_DOWN : 0) | (buttons.shiftUp.pressed ? BTN_SHIFT_UP : 0);
   return {
     t: "in",
@@ -112,6 +116,11 @@ function currentInput(neutral = false) {
     th: round(bars.throttle.value),
     br: round(bars.brake.value),
     b,
+    c: [...customControls].filter(([, c]) => c.kind === "button" && c.pressed).map(([id]) => id),
+    // Joysticks [x, y] and axes v, only while touched.
+    a: Object.fromEntries([...customControls]
+      .filter(([, c]) => c.kind !== "button" && c.value != null)
+      .map(([id, c]) => [id, Array.isArray(c.value) ? c.value.map(round) : round(c.value)])),
   };
 }
 
@@ -305,7 +314,8 @@ for (const input of panel.querySelectorAll("[data-setting]")) {
   else input.value = settings[key];
   show();
   input.addEventListener("input", () => {
-    settings[key] = input.type === "checkbox" ? input.checked : Number(input.value);
+    settings[key] = input.type === "checkbox" ? input.checked
+      : input.tagName === "SELECT" ? input.value : Number(input.value);
     saveSettings(settings);
     show();
   });
@@ -354,6 +364,176 @@ for (const select of bindSelects) {
   });
 }
 $("#settings-close").addEventListener("click", () => (panel.hidden = true));
+
+// ---------------------------------------------------------------- custom controls (kept on the PC)
+// Buttons (Xbox button or keyboard key), joysticks (a stick or WASD / arrow keys) and axes
+// (one stick axis or a trigger). The PC keeps the list in config.json.
+
+const KEY_LABELS = {
+  SPACE: "Space", ENTER: "Enter", TAB: "Tab", ESCAPE: "Esc", BACKSPACE: "Backspace",
+  UP: "↑", DOWN: "↓", LEFT: "←", RIGHT: "→", INSERT: "Insert", DELETE: "Delete", HOME: "Home",
+  END: "End", PAGEUP: "PgUp", PAGEDOWN: "PgDn", LSHIFT: "Shift", LCTRL: "Ctrl",
+};
+const keyLabel = (k) => KEY_LABELS[k] || k.replace(/^NUMPAD(\d)$/, "Num $1");
+const ANALOG_LABELS = {
+  "stick:right": ["Right stick (camera)", "R-stick"],
+  "stick:left": ["Left stick (walk; replaces steering while held)", "L-stick"],
+  "keys:wasd": ["W A S D keys", "WASD"],
+  "keys:arrows": ["Arrow keys", "Arrows"],
+  "axis:RX": ["Right stick X (look left/right)", "R-stick X"],
+  "axis:RY": ["Right stick Y (look up/down)", "R-stick Y"],
+  "axis:LY": ["Left stick Y", "L-stick Y"],
+  "axis:LT": ["Left trigger", "LT"],
+  "axis:RT": ["Right trigger", "RT"],
+};
+// [long text for the settings list, short text shown on the control itself]
+const bindText = (bind) => {
+  if (ANALOG_LABELS[bind]) return ANALOG_LABELS[bind];
+  const [target, name] = bind.split(":");
+  return target === "pad" ? [label(name), label(name).split(" ")[0]] : [`Key ${keyLabel(name)}`, keyLabel(name)];
+};
+const isCentered = (bind) => bind !== "axis:LT" && bind !== "axis:RT";
+const KINDS = {
+  button:   { name: "Button",   label: "BTN",  bind: "pad:Y" },
+  joystick: { name: "Joystick", label: "Cam",  bind: "stick:right" },
+  axis:     { name: "Axis",     label: "Look", bind: "axis:RX" },
+};
+// Where new controls go: free spots around the shift buttons and the dash.
+const CUSTOM_SLOTS = [
+  { x: 0.165, y: 0.16, w: 0.13, h: 0.28 }, { x: 0.705, y: 0.16, w: 0.13, h: 0.28 },
+  { x: 0.165, y: 0.83, w: 0.13, h: 0.14 }, { x: 0.705, y: 0.83, w: 0.13, h: 0.14 },
+  { x: 0.33, y: 0.83, w: 0.12, h: 0.14 }, { x: 0.55, y: 0.83, w: 0.12, h: 0.14 },
+];
+const MAX_CUSTOM = 12;
+let customDefs = [];
+let customBindOptions = {};
+const customList = $("#custom-list");
+const customAddButtons = [...document.querySelectorAll("[data-add-kind]")];
+
+function freeSlot() {
+  const taken = [...customControls.keys()].map((id) => layout.boxes[`custom:${id}`]);
+  const slot = CUSTOM_SLOTS.find((s) => !taken.some((b) => b && b.x === s.x && b.y === s.y));
+  return { ...(slot || { x: 0.44, y: 0.42, w: 0.12, h: 0.22 }) };
+}
+
+// Axes start shaped like what they control: wide for left/right, tall for up/down and triggers.
+const WIDE_SLOTS = [  // along the bottom, either side of the settings button
+  { x: 0.29, y: 0.82, w: 0.17, h: 0.13 }, { x: 0.54, y: 0.82, w: 0.17, h: 0.13 },
+];
+function defaultBox(def) {
+  if (def.kind === "axis" && def.bind.endsWith("X")) {
+    const taken = [...customControls.keys()].map((id) => layout.boxes[`custom:${id}`]);
+    const slot = WIDE_SLOTS.find((s) => !taken.some((b) => b && b.x === s.x && b.y === s.y));
+    if (slot) return { ...slot };
+  }
+  const box = freeSlot();
+  if (def.kind !== "axis") return box;
+  const w = 0.07;  // tall and narrow, centred in the slot
+  return { ...box, x: box.x + (box.w - w) / 2, w, h: Math.max(box.h, 0.28) };
+}
+
+const CONTROL_HTML = {
+  button: '<span class="custom-name"></span><span class="shift-label"></span>',
+  joystick: '<div class="stick-base"><div class="stick-knob"></div></div>' +
+            '<span class="custom-name"></span><span class="shift-label"></span>',
+  axis: '<div class="axis-track"><div class="axis-knob"></div></div>' +
+        '<span class="custom-name"></span><span class="shift-label"></span>',
+};
+
+function createControl(def) {
+  const el = document.createElement("div");
+  el.className = `el custom custom-${def.kind}` + (def.kind === "button" ? " shift" : "");
+  el.dataset.el = `custom:${def.id}`;
+  el.innerHTML = CONTROL_HTML[def.kind];
+  $("#hud").insertBefore(el, $("#toast"));
+  const control = def.kind === "joystick" ? new Joystick(el)
+    : def.kind === "axis" ? new AxisSlider(el, isCentered(def.bind))
+    : new HoldButton(el, () => vibrate(15));
+  control.kind = def.kind;
+  return control;
+}
+
+// Bring the HUD and the settings editor in line with the PC's list.
+function showCustom(defs, padOptions, keys, bindOptions) {
+  customDefs = defs;
+  customBindOptions = bindOptions;
+  const ids = new Map(defs.map((d) => [d.id, d]));
+  for (const [id, control] of [...customControls]) {
+    if (ids.get(id)?.kind !== control.kind) {  // removed (kinds never change for an id)
+      customControls.delete(id);
+      layout.remove(`custom:${id}`);
+    }
+  }
+  for (const def of defs) {
+    let control = customControls.get(def.id);
+    if (!control) {
+      control = createControl(def);
+      customControls.set(def.id, control);
+      layout.add(`custom:${def.id}`, control.el, defaultBox(def));  // a saved position wins
+      layout.save();  // remember where it went
+    }
+    if (def.kind === "axis") control.centered = isCentered(def.bind);
+    control.release();
+    control.el.querySelector(".custom-name").textContent = def.label;
+    control.el.querySelector(".shift-label").textContent = bindText(def.bind)[1];
+  }
+  renderCustomEditor(padOptions, keys);
+}
+
+function bindSelect(def, padOptions, keys) {
+  const select = document.createElement("select");
+  const group = (title, options) => {
+    const g = document.createElement("optgroup");
+    g.label = title;
+    g.append(...options.map(([v, text]) => new Option(text, v)));
+    return g;
+  };
+  if (def.kind === "button") {
+    select.append(
+      group("Controller button", padOptions.map((b) => [`pad:${b}`, label(b)])),
+      group("Keyboard key", keys.map((k) => [`key:${k}`, `Key ${keyLabel(k)}`])),
+    );
+  } else {
+    select.append(...(customBindOptions[def.kind] || []).map((b) => new Option(bindText(b)[0], b)));
+  }
+  select.value = def.bind;
+  return select;
+}
+
+function renderCustomEditor(padOptions, keys) {
+  const sendList = (list) => send({ t: "custom", buttons: list });
+  customList.replaceChildren(...customDefs.map((def, i) => {
+    const row = document.createElement("div");
+    row.className = "custom-row";
+    const kind = Object.assign(document.createElement("span"), {
+      className: "custom-kind", textContent: KINDS[def.kind].name });
+    const name = Object.assign(document.createElement("input"), { value: def.label, maxLength: 12 });
+    name.setAttribute("aria-label", "Label");
+    const bind = bindSelect(def, padOptions, keys);
+    const del = Object.assign(document.createElement("button"), { textContent: "✕", title: "Remove" });
+    const update = (change) => sendList(customDefs.map((d, j) => (j === i ? { ...d, ...change } : d)));
+    name.addEventListener("change", () => update({ label: name.value.trim() || def.label }));
+    bind.addEventListener("change", () => update({ bind: bind.value }));
+    del.addEventListener("click", () => sendList(customDefs.filter((_, j) => j !== i)));
+    row.append(kind, name, bind, del);
+    return row;
+  }));
+  for (const add of customAddButtons) {
+    const kind = add.dataset.addKind;
+    add.onclick = () => sendList([...customDefs, {
+      id: "c" + Math.random().toString(36).slice(2, 8),
+      label: `${KINDS[kind].label} ${customDefs.filter((d) => d.kind === kind).length + 1}`,
+      kind,
+      bind: KINDS[kind].bind,
+    }]);
+  }
+  setCustomEditorEnabled(true);
+}
+
+function setCustomEditorEnabled(on) {
+  for (const el of customList.querySelectorAll("input, select, button")) el.disabled = !on;
+  for (const add of customAddButtons) add.disabled = !on || customDefs.length >= MAX_CUSTOM;
+}
 
 $("#calibrate-btn").addEventListener("click", (e) => {
   steering.calibrate();

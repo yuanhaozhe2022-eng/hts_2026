@@ -47,7 +47,9 @@ phones from reaching a PC (Android Chrome then shows errors like `ERR_TOO_MANY_R
 
 **Can't connect at all?** The PC logs every device that reaches it ("Page requested by ...").
 If your phone never appears there, the network is blocking it: use USB (above), or turn on the
-phone's hotspot and connect the PC to it.
+phone's hotspot and connect the PC to it. For the full picture, stop `main.py` and run
+`python tools/net_check.py`: open the address it prints on the phone and tap both test links.
+It logs every connection attempt and exactly how it ended.
 
 **iPhone:** turn on **Rotation Lock** (Control Center → lock button) before you start. A web page
 can't lock landscape on iPhone, so without it a hard turn can flip the screen. With the lock on,
@@ -70,6 +72,22 @@ Bind controls in the game's menu like any Xbox controller:
 To make the shift buttons press something else (e.g. shift up = A, shift down = X), open
 Settings on the phone → **Controller buttons**. The PC applies it immediately and saves it in
 `config.json`, so it sticks for every phone. Each shift button shows its Xbox button, e.g. "UP · A".
+
+**Custom controls.** Settings → **Custom controls** adds up to 12 extra on-screen controls; move
+and resize them with Edit layout.
+
+| Add        | On the phone                          | Bind to |
+|------------|---------------------------------------|---------|
+| + Button   | Tap / hold                            | A controller button, or a keyboard key (letters, numbers, F1–F12, arrows, Space, Enter, Esc, Shift, Ctrl, numpad, ...) |
+| + Joystick | Thumbstick, springs back to center    | Right stick (camera), Left stick (walking; replaces steering only while held), W A S D or arrow keys |
+| + Axis     | Slider, springs back                  | Right stick X / Y (look around), Left stick Y, Left / Right trigger |
+
+Keys go to whichever window has focus on the PC, i.e. the game. Alt and the Windows key aren't
+offered, and everything held is released by the same 300 ms safety cut-off as the pedals.
+
+**Rev lights.** Settings → *Rev lights*: F1-style LED bulbs (5 green, 5 red, 5 blue, all
+blinking at the shift point), the classic bar, or both. They're a separate element from the
+gear/speed dash, so Edit layout can move and resize them on their own.
 
 Tip: turn on **Lock steering at center** in the phone's Settings while binding pedals and
 buttons, so tilting the phone doesn't get picked up instead.
@@ -97,6 +115,13 @@ Ports and the safety timeout are in `config.json` (created on first run).
 
 - **BeamNG.drive:** Options → Other → Protocols → enable **OutGauge**, IP `127.0.0.1`, port `4444`.
 - **Assetto Corsa / ACC:** nothing to set up (read from the game's shared memory).
+- Automatic gearboxes show **D** with the actual gear beside it (e.g. D3). Assetto Corsa reports
+  its auto-shifter directly; for BeamNG it's detected when the gear changes without you pressing
+  a shift button. Settings → *Show "D" for automatic* can force it on or off.
+- **BeamNG P / R / N / D / S / M exactly like the car's dash:** OutGauge can't tell Park from
+  Neutral (BeamNG sends 0 for both), so PhoneWheel includes a tiny BeamNG mod that sends the real
+  gear name and the engine's redline. Install it once with `python main.py --install-beamng-mod`,
+  restart BeamNG, then tick **Options → Other → Other protocols** (keep OutGauge on too).
 - The dash badge says **BEAMNG** or **AC** when live data arrives. **EST** means none is: the gear
   is then counted from your shift presses and RPM follows the throttle.
 - Only one copy of PhoneWheel can receive BeamNG data at a time (it owns UDP port 4444).

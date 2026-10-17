@@ -11,6 +11,17 @@ from .state import BUTTON_BITS, NEUTRAL, InputState
 log = logging.getLogger(__name__)
 
 
+def stick_values(state: InputState) -> tuple[float, float, float, float, float, float]:
+    """(LX, LY, RX, RY, LT, RT) for the pad: steering and pedals, plus custom axes/joysticks.
+
+    A joystick on the left stick takes over steering only while it's being touched; an axis
+    on a trigger combines with its pedal (the stronger one wins)."""
+    axes = dict(state.axes)
+    return (axes.get("LX", state.steer), axes.get("LY", 0.0),
+            axes.get("RX", 0.0), axes.get("RY", 0.0),
+            max(state.brake, axes.get("LT", 0.0)), max(state.throttle, axes.get("RT", 0.0)))
+
+
 class Pad:
     """Base: remembers the last applied state. Subclasses push it somewhere."""
 
@@ -34,9 +45,10 @@ class Pad:
         self.apply(self.state)
 
     def held_buttons(self, state: InputState) -> set[str]:
-        """Xbox buttons that should be down. Two actions may share one button."""
+        """Xbox buttons that should be down: bound shift buttons plus custom buttons.
+        Several may share one Xbox button."""
         return {self.bindings[action] for action in BUTTON_BITS
-                if action in self.bindings and state.pressed(action)}
+                if action in self.bindings and state.pressed(action)} | set(state.extra_buttons)
 
     def close(self) -> None:
         pass
@@ -80,9 +92,11 @@ class XboxPad(Pad):
         return getattr(self._vg.XUSB_BUTTON, "XUSB_GAMEPAD_" + name)
 
     def _write(self, state: InputState) -> None:
-        self._pad.left_joystick_float(x_value_float=state.steer, y_value_float=0.0)
-        self._pad.right_trigger_float(value_float=state.throttle)
-        self._pad.left_trigger_float(value_float=state.brake)
+        x, y, rx, ry, lt, rt = stick_values(state)
+        self._pad.left_joystick_float(x_value_float=x, y_value_float=y)
+        self._pad.right_joystick_float(x_value_float=rx, y_value_float=ry)
+        self._pad.right_trigger_float(value_float=rt)
+        self._pad.left_trigger_float(value_float=lt)
         held = self.held_buttons(state)
         for name in self._held - held:
             self._pad.release_button(button=self._button(name))

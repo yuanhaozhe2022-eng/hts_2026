@@ -42,6 +42,10 @@ class InputState:
     throttle: float = 0.0  # 0 .. 1
     brake: float = 0.0     # 0 .. 1
     buttons: int = 0       # bitmask of BTN_*
+    custom: frozenset = frozenset()          # ids of custom phone buttons held down
+    analog: tuple = ()                       # ((id, value | (x, y)), ...) custom axes/joysticks touched
+    extra_buttons: frozenset = frozenset()   # Xbox buttons those resolve to (set by the server)
+    axes: tuple = ()                         # (("RX", 0.4), ...) Xbox axes they set (set by the server)
 
     def pressed(self, name: str) -> bool:
         return bool(self.buttons & BUTTON_BITS[name])
@@ -60,15 +64,35 @@ def _num(value, lo: float, hi: float) -> float:
     return min(hi, max(lo, x))
 
 
+def _analog(raw) -> tuple:
+    """{"id": 0.5, "id2": [x, y]} -> ((id, 0.5), (id2, (x, y))), clamped to -1..1."""
+    if not isinstance(raw, dict):
+        return ()
+    out = []
+    for cid, value in list(raw.items())[:32]:
+        if not isinstance(cid, str):
+            continue
+        if isinstance(value, list) and len(value) == 2:
+            out.append((cid, (_num(value[0], -1.0, 1.0), _num(value[1], -1.0, 1.0))))
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            out.append((cid, _num(value, -1.0, 1.0)))
+    return tuple(out)
+
+
 def parse_input(msg: dict) -> InputState:
-    """Turn an input message {"s", "th", "br", "b"} into a clamped InputState."""
+    """Turn an input message {"s", "th", "br", "b", "c", "a"} into a clamped InputState."""
     try:
         buttons = int(msg.get("b", 0)) & 0xFFFF
     except (TypeError, ValueError):
         buttons = 0
+    custom = msg.get("c") or []
+    if not isinstance(custom, list):
+        custom = []
     return InputState(
         steer=_num(msg.get("s"), -1.0, 1.0),
         throttle=_num(msg.get("th"), 0.0, 1.0),
         brake=_num(msg.get("br"), 0.0, 1.0),
         buttons=buttons,
+        custom=frozenset(c for c in custom[:32] if isinstance(c, str)),
+        analog=_analog(msg.get("a")),
     )

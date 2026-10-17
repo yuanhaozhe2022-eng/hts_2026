@@ -24,6 +24,8 @@ class Lap:
 @dataclass(frozen=True)
 class Sample:
     gear: int = 1
+    gear_label: str | None = None      # what the car's own dash shows (P, D, S3...), if known
+    gear_sub: str | None = None        # small text next to it (the gear in D / S / M)
     rpm: float = 0.0
     max_rpm: float = 7000.0
     speed_kmh: float | None = None
@@ -33,6 +35,7 @@ class Sample:
     boost: float | None = None         # bar
     lights: dict = field(default_factory=dict)  # supported light -> on/off
     lap: Lap | None = None
+    automatic: bool | None = None      # gearbox shifts by itself (None: unknown)
     source: str = "none"
     time: float = 0.0  # time.monotonic() when received
 
@@ -41,6 +44,8 @@ class Sample:
         msg = {
             "t": "tel",
             "g": self.gear,
+            "gl": self.gear_label,
+            "gs": self.gear_sub,
             "r": round(self.rpm),
             "m": round(self.max_rpm),
             "v": r1(self.speed_kmh),
@@ -50,6 +55,7 @@ class Sample:
             "bo": None if self.boost is None else round(self.boost, 2),
             "li": self.lights,
             "lp": None,
+            "au": self.automatic,
             "src": self.source,
         }
         if self.lap is not None:

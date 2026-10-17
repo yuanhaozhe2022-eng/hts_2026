@@ -1,6 +1,9 @@
 """Send fake BeamNG OutGauge packets so the phone dashboard can be tested without the game.
 
-    python tools/fake_outgauge.py [--port 4444]
+    python tools/fake_outgauge.py [--port 4444] [--mod]
+
+--mod also sends what the PhoneWheel BeamNG mod sends (gear names: P while parked, then D),
+as an automatic car would.
 
 Revs up through the gears and back to neutral in a loop, with fuel, engine temperature,
 boost and dash lights (blinking signals, handbrake in neutral, ABS/TC flickers).
@@ -18,6 +21,7 @@ DL = {"shift": 1 << 0, "highbeam": 1 << 1, "handbrake": 1 << 2, "tc": 1 << 4, "s
       "signal_r": 1 << 6, "oil": 1 << 8, "battery": 1 << 9, "abs": 1 << 10}
 CAR_HAS = sum(DL.values())
 IDLE, REDLINE, SHIFT_AT = 900.0, 7200.0, 6800.0
+GEAR_PACKET = struct.Struct("<4s8sf")
 
 
 def lights(t: float, gear: int, rpm: float) -> int:
@@ -51,6 +55,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=4444)
+    parser.add_argument("--mod", action="store_true", help="also send BeamNG mod gear names")
     args = parser.parse_args()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -71,6 +76,9 @@ def main() -> None:
                     neutral_since = now
             speed = (gear - 1) * 8 + (rpm - IDLE) / 400 if gear > 1 else 0.0
             sock.sendto(packet(now - t0, gear, rpm, speed), (args.host, args.port))
+            if args.mod:
+                name = b"P" if gear == 1 else b"D"   # parked between runs, then Drive
+                sock.sendto(GEAR_PACKET.pack(b"PWG1", name, REDLINE), (args.host, args.port + 1))
             time.sleep(1 / 60)
     except KeyboardInterrupt:
         pass

@@ -11,6 +11,7 @@ phone (served at /ca.crt) removes the warning entirely.
 import datetime as dt
 import ipaddress
 import socket
+import ssl
 from pathlib import Path
 
 from cryptography import x509
@@ -82,6 +83,20 @@ def _cert_covers(cert_path: Path, ip: str) -> bool:
     except x509.ExtensionNotFound:
         return False
     return ipaddress.ip_address(ip) in san.get_values_for_type(x509.IPAddress)
+
+
+def server_ssl_context(cert_path: Path, key_path: Path) -> ssl.SSLContext:
+    """TLS settings for the phone page, chosen for compatibility over a LAN.
+
+    Key exchange is pinned to classic X25519. OpenSSL 3.5 would otherwise pick the
+    post-quantum X25519MLKEM768, whose ~1.8 kB handshake some managed Wi-Fi gear
+    mishandles (seen as Android Chrome failing with ERR_TOO_MANY_RETRIES while an iPhone
+    works). Chrome, Safari and Firefox all offer X25519 up front, so nothing is lost.
+    """
+    ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ctx.load_cert_chain(cert_path, key_path)
+    ctx.set_ecdh_curve("X25519")
+    return ctx
 
 
 def ensure_certs(folder: Path, ip: str) -> tuple[Path, Path]:

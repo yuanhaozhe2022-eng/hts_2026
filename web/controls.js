@@ -101,3 +101,89 @@ export class HoldButton {
     this.el.classList.remove("active");
   }
 }
+
+// Shared pointer handling for analog controls: one finger owns the control while it's
+// down (captured, so sliding off keeps control), and it springs back on release.
+class AnalogControl {
+  constructor(el) {
+    this.el = el;
+    this.value = null;  // null while untouched, so the PC leaves that axis alone
+    this.pointerId = null;
+    el.addEventListener("pointerdown", (e) => {
+      if (isEditing() || this.pointerId !== null) return;
+      e.preventDefault();
+      this.pointerId = e.pointerId;
+      el.setPointerCapture(e.pointerId);
+      el.classList.add("active");
+      this._track(e);
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (e.pointerId === this.pointerId) this._track(e);
+    });
+    const end = (e) => {
+      if (e.pointerId === this.pointerId) this.release();
+    };
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+    el.addEventListener("lostpointercapture", end);
+  }
+
+  release() {
+    this.pointerId = null;
+    this.value = null;
+    this.el.classList.remove("active");
+    this._show(null);
+  }
+}
+
+// Two-axis thumbstick: [x, y] in -1..1 (y up), within a circle.
+export class Joystick extends AnalogControl {
+  constructor(el) {
+    super(el);
+    this.knob = el.querySelector(".stick-knob");
+  }
+
+  _track(e) {
+    const p = hudPoint(e.clientX, e.clientY);
+    const { offsetLeft: l, offsetTop: t, offsetWidth: w, offsetHeight: h } = this.el;
+    const radius = Math.min(w, h) * 0.32;
+    let x = (p.x - (l + w / 2)) / radius;
+    let y = -(p.y - (t + h / 2)) / radius;
+    const mag = Math.hypot(x, y);
+    if (mag > 1) [x, y] = [x / mag, y / mag];
+    this.value = mag < 0.08 ? [0, 0] : [x, y];  // small dead zone so a resting thumb is still
+    this._show([x, y], radius);
+  }
+
+  _show(v, radius = 0) {
+    this.knob.style.transform = v ? `translate(${v[0] * radius}px, ${-v[1] * radius}px)` : "";
+  }
+}
+
+// One-axis slider. Centered (-1..1, springs to the middle) for stick axes, or 0..1 from
+// the start for triggers. Horizontal or vertical, whichever way it's laid out.
+export class AxisSlider extends AnalogControl {
+  constructor(el, centered) {
+    super(el);
+    this.centered = centered;
+    this._show(null);
+  }
+
+  _track(e) {
+    const p = hudPoint(e.clientX, e.clientY);
+    const { offsetLeft: l, offsetTop: t, offsetWidth: w, offsetHeight: h } = this.el;
+    const raw = clamp01(w > h ? (p.x - l) / w : (t + h - p.y) / h);
+    if (this.centered) {
+      const v = raw * 2 - 1;
+      this.value = Math.abs(v) < 0.06 ? 0 : v;
+    } else {
+      this.value = pedalCurve(raw);
+    }
+    this._show(raw);
+  }
+
+  _show(raw) {
+    this.el.classList.toggle("horizontal", this.el.offsetWidth > this.el.offsetHeight);
+    this.el.style.setProperty("--p", raw ?? (this.centered ? 0.5 : 0));
+  }
+}

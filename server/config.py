@@ -19,7 +19,9 @@ DEFAULTS = {
         "shift_down": "LEFT_SHOULDER",
         "shift_up": "RIGHT_SHOULDER",
     },
-    "beamng": {"enabled": True, "host": "127.0.0.1", "port": 4444},
+    # Extra phone buttons: [{"id", "label", "bind": "pad:Y" | "key:H"}]. Edited from the phone.
+    "custom_buttons": [],
+    "beamng": {"enabled": True, "host": "127.0.0.1", "port": 4444, "gear_port": 4445},
     "assetto": {"enabled": True},
 }
 

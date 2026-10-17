@@ -48,8 +48,14 @@
       <span class="shift-icon">+</span><span class="shift-label">UP</span>
     </div>
 
-    <div class="el dash" data-el="dash">
+    <!-- Rev lights: their own element so they can be moved/resized apart from the dash.
+         Settings > Rev lights picks LED bulbs (F1), the bar, or both; dash.js drives them. -->
+    <div class="el revs" data-el="revs">
+      <div class="rev-leds"></div>
       <div class="rpm"><div class="rpm-fill"></div><div class="rpm-redline"></div></div>
+    </div>
+
+    <div class="el dash" data-el="dash">
       <div class="dash-row">
         <div class="dash-side"><span id="speed">--</span><small>km/h</small></div>
         <div id="gear">N</div>
@@ -140,6 +146,20 @@
       <label class="toggle"><input type="checkbox" data-setting="lockSteering"> Lock steering at center
         <span class="hint">(for binding pedals/buttons in the game's menu)</span></label>
       <label class="toggle"><input type="checkbox" data-setting="vibration"> Vibration (Android)</label>
+      <label class="bind">Rev lights
+        <select data-setting="revStyle">
+          <option value="leds">LED bulbs (F1)</option>
+          <option value="bar">Bar</option>
+          <option value="both">Both</option>
+        </select>
+      </label>
+      <label class="bind">Show &ldquo;D&rdquo; for automatic
+        <select data-setting="gearD">
+          <option value="auto">Auto-detect</option>
+          <option value="on">Always</option>
+          <option value="off">Never</option>
+        </select>
+      </label>
 
       <h3>Controller buttons</h3>
       <p class="hint">Which Xbox button each phone button presses. Saved on the PC.</p>
@@ -149,6 +169,17 @@
       <label class="bind">Shift down
         <select data-bind="shift_down" disabled><option>connecting&hellip;</option></select>
       </label>
+
+      <h3>Custom controls</h3>
+      <p class="hint">Extra on-screen controls: buttons (a controller button or keyboard key),
+        joysticks (camera, walking, or WASD / arrow keys) and axes (one stick axis or a trigger).
+        Place them with Edit layout.</p>
+      <div id="custom-list"></div>
+      <div class="row">
+        <button data-add-kind="button" disabled>+ Button</button>
+        <button data-add-kind="joystick" disabled>+ Joystick</button>
+        <button data-add-kind="axis" disabled>+ Axis</button>
+      </div>
 
       <div class="row buttons">
         <a class="link" href="/ca.crt">Remove the certificate warning (install CA)</a>

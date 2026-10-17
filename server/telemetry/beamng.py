@@ -1,6 +1,10 @@
-"""BeamNG.drive OutGauge UDP telemetry.
+"""BeamNG.drive telemetry: OutGauge, plus gear names from the PhoneWheel BeamNG mod.
 
-Enable in BeamNG: Options > Other > Protocols > OutGauge, IP 127.0.0.1, port 4444.
+Enable in BeamNG: Options > Other > OutGauge, IP 127.0.0.1, port 4444.
+
+OutGauge only has a gear number, and BeamNG automatics report Park and Neutral both as 0.
+The optional mod (beamng_mod/, `python main.py --install-beamng-mod`, then Options > Other >
+"Other protocols") adds what the in-game dash shows (P, R, N, D, S3, M2...) and the redline.
 """
 
 import asyncio
@@ -33,6 +37,10 @@ DASH_LIGHTS = {
 }
 # OutGauge has no redline field; start here and learn the real one from the highest RPM seen.
 DEFAULT_MAX_RPM = 4000.0
+# PhoneWheel mod packet: magic, gear name, redline (see beamng_mod/.../phonewheel.lua).
+GEAR_PACKET = struct.Struct("<4s8sf")
+GEAR_MAGIC = b"PWG1"
+GEAR_FRESH_S = 1.0
 
 
 class OutGauge(NamedTuple):
@@ -68,21 +76,66 @@ def parse_outgauge(data: bytes) -> OutGauge | None:
     )
 
 
+def parse_gear_packet(data: bytes) -> tuple[str, float] | None:
+    """(gear name, redline) from the mod, or None if it isn't one of its packets."""
+    if len(data) != GEAR_PACKET.size or not data.startswith(GEAR_MAGIC):
+        return None
+    _, name, max_rpm = GEAR_PACKET.unpack(data)
+    return name.split(b"\0", 1)[0].decode("ascii", "replace").strip(), max_rpm
+
+
+def gear_display(name: str, gear: int) -> tuple[str, str | None, bool]:
+    """(big label, small label, automatic) for a BeamNG gear name.
+
+    Manuals send the gear as a number (-1 reverse, 0 neutral); automatics send their mode:
+    P, R, N, D (shown with the actual gear small), S3 / M2 (sport / manual mode + gear).
+    """
+    try:
+        n = int(float(name))
+    except ValueError:
+        n = None
+    if n is not None:
+        return ("R" if n < 0 else "N" if n == 0 else str(n)), None, False
+    head, rest = name[:1].upper(), name[1:]
+    if head in ("P", "R", "N"):
+        return head, None, True
+    if head in ("D", "S", "M"):
+        return head, rest or (str(gear - 1) if gear >= 2 else None), True
+    return name[:3], None, True
+
+
+class _GearListener(asyncio.DatagramProtocol):
+    def __init__(self, source):
+        self.source = source
+
+    def datagram_received(self, data, addr):
+        self.source.handle_gear_packet(data, time.monotonic())
+
+
 class BeamNGSource(asyncio.DatagramProtocol):
     name = "beamng"
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 4444):
-        self.host, self.port = host, port
+    def __init__(self, host: str = "127.0.0.1", port: int = 4444, gear_port: int = 4445):
+        self.host, self.port, self.gear_port = host, port, gear_port
+        self._gear = None  # (name, redline, time) from the mod
+        self._gear_transport = None
         self.latest: Sample | None = None
         self._car = None
         self._peak_rpm = DEFAULT_MAX_RPM
         self._has_turbo = False
         self._transport = None
+        self._bad_sizes: set[int] = set()
 
     def handle_packet(self, data: bytes, now: float) -> None:
         p = parse_outgauge(data)
         if p is None:
+            if len(data) not in self._bad_sizes:  # once per size, not 60 times a second
+                self._bad_sizes.add(len(data))
+                log.warning("Ignoring a %d-byte packet on the OutGauge port (expected %d or %d)",
+                            len(data), OUTGAUGE.size, OUTGAUGE.size + 4)
             return
+        if self._car is None:
+            log.info("BeamNG telemetry: receiving OutGauge data")
         if p.car != self._car:
             self._car = p.car
             self._peak_rpm = DEFAULT_MAX_RPM
@@ -90,10 +143,20 @@ class BeamNGSource(asyncio.DatagramProtocol):
         self._peak_rpm = max(self._peak_rpm, p.rpm)
         # Show boost once the car proves it has a turbo, so the readout doesn't flicker at idle.
         self._has_turbo = self._has_turbo or p.turbo_gauge or p.boost > 0.05
+
+        label = sub = automatic = None
+        max_rpm = self._peak_rpm
+        if self._gear and now - self._gear[2] <= GEAR_FRESH_S:
+            label, sub, automatic = gear_display(self._gear[0], p.gear)
+            if self._gear[1] > 0:
+                max_rpm = self._gear[1]
         self.latest = Sample(
             gear=p.gear,
+            gear_label=label,
+            gear_sub=sub,
+            automatic=automatic,
             rpm=p.rpm,
-            max_rpm=self._peak_rpm,
+            max_rpm=max_rpm,
             speed_kmh=p.speed_kmh,
             shift_light=p.shift_light,
             fuel=p.fuel,
@@ -107,6 +170,14 @@ class BeamNGSource(asyncio.DatagramProtocol):
     def datagram_received(self, data, addr):
         self.handle_packet(data, time.monotonic())
 
+    def handle_gear_packet(self, data: bytes, now: float) -> None:
+        parsed = parse_gear_packet(data)
+        if parsed is None:
+            return
+        if self._gear is None:
+            log.info("BeamNG: PhoneWheel mod connected (real gear names, e.g. P)")
+        self._gear = (*parsed, now)
+
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
         try:
@@ -117,7 +188,14 @@ class BeamNGSource(asyncio.DatagramProtocol):
         except OSError as exc:
             log.warning("BeamNG telemetry disabled: cannot bind UDP %s:%d (%s). Is another "
                         "copy of PhoneWheel running?", self.host, self.port, exc)
+        try:
+            self._gear_transport, _ = await loop.create_datagram_endpoint(
+                lambda: _GearListener(self), local_addr=(self.host, self.gear_port))
+        except OSError as exc:
+            log.warning("BeamNG gear names (mod) disabled: cannot bind UDP %s:%d (%s)",
+                        self.host, self.gear_port, exc)
 
     def stop(self) -> None:
-        if self._transport:
-            self._transport.close()
+        for transport in (self._transport, self._gear_transport):
+            if transport:
+                transport.close()

@@ -210,6 +210,7 @@ class AssettoSource:
             boost=max(0.0, physics.turboBoost) if physics.turboBoost > 0.01 else None,
             lights={"pit": bool(physics.pitLimiterOn)},
             lap=_lap(graphics),
+            automatic=bool(physics.autoShifterOn),
             source=self.name,
             time=now,
         )

@@ -119,6 +119,69 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .shift-label { font-size: min(14cqh, 14cqw); color: var(--muted); letter-spacing: .1em; font-weight: 600; }
 .shift.active { background: var(--accent); border-color: var(--accent); color: #04121b; transform: scale(.95); }
 .shift.active .shift-label { color: #04121b; }
+/* Custom buttons: user's label big, the bound button/key small underneath. */
+.custom { border-radius: 16px; gap: 4%; }
+.custom-name {
+  max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: min(26cqh, 17cqw); font-weight: 700; line-height: 1.1;
+}
+.custom .shift-label { font-size: min(18cqh, 11cqw); }
+
+/* Custom joystick: round base with a knob that follows the thumb. */
+.custom-joystick {
+  display: flex; align-items: center; justify-content: center;
+  container-type: size;
+}
+.stick-base {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 80cqmin; height: 80cqmin; border-radius: 50%;
+  background: radial-gradient(circle, var(--panel-2) 0 55%, var(--panel) 56%);
+  border: 2px solid var(--line);
+}
+.stick-knob {
+  width: 40%; height: 40%; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #3a4452, #1d232c);
+  border: 2px solid var(--muted); box-shadow: 0 3px 10px rgba(0, 0, 0, .5);
+}
+.custom-joystick.active .stick-knob { border-color: var(--accent); background: var(--accent); }
+.custom-joystick .custom-name, .custom-joystick .shift-label {
+  position: absolute; left: 0; right: 0; text-align: center; pointer-events: none;
+}
+.custom-joystick .custom-name { top: 2%; font-size: min(11cqh, 11cqw); color: var(--muted); }
+.custom-joystick .shift-label { bottom: 2%; font-size: min(8cqh, 8cqw); }
+
+/* Custom axis: a track with a knob; centred axes rest in the middle, triggers at the start. */
+.custom-axis {
+  container-type: size;
+  border-radius: 14px; background: var(--panel); border: 1px solid var(--line);
+}
+.axis-track { position: absolute; inset: 0; }
+.axis-track::before {  /* centre line / start mark */
+  content: ""; position: absolute; background: var(--line);
+  left: 50%; top: 8%; bottom: 8%; width: 2px; margin-left: -1px;
+}
+.axis-knob {
+  position: absolute; left: 12%; right: 12%; height: 18%;
+  bottom: calc(var(--p, .5) * 82%);
+  border-radius: 8px; background: var(--muted);
+}
+.custom-axis.horizontal .axis-knob {
+  left: calc(var(--p, .5) * 82%); right: auto; top: 12%; bottom: 12%; width: 18%; height: auto;
+}
+.custom-axis:not(.horizontal) .axis-track::before {
+  left: 8%; right: 8%; top: 50%; bottom: auto; width: auto; height: 2px; margin: -1px 0 0;
+}
+.custom-axis.active .axis-knob { background: var(--accent); }
+.custom-axis .custom-name, .custom-axis .shift-label {
+  position: absolute; left: 0; right: 0; text-align: center; pointer-events: none;
+  font-weight: 700; text-shadow: 0 1px 3px rgba(0, 0, 0, .7);
+}
+.custom-axis .custom-name { top: 4%; font-size: min(14cqh, 12cqw); }
+.custom-axis .shift-label { bottom: 4%; font-size: min(10cqh, 9cqw); color: var(--muted); }
+.custom-kind {
+  flex: 0 0 auto; font-size: .7rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .06em; width: 4.6em;
+}
 
 /* Dashboard */
 .dash {
@@ -127,9 +190,16 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   container-type: size;
   pointer-events: none;
 }
+/* Rev lights: own HUD element. Bulbs, bar, or bulbs over a bar ("both"). */
+.revs {
+  display: flex; flex-direction: column; justify-content: center; gap: 8%;
+  container-type: size; pointer-events: none;
+  --led-share: 100;  /* % of the height the bulbs may use */
+}
+.revs.both { --led-share: 56; }
 .rpm {
   position: relative;
-  height: 13%; flex-shrink: 0;
+  flex: 1; min-height: 0;
   border-radius: 6px;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -150,7 +220,33 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   border-left: 2px solid var(--bad);
   background: rgba(239, 68, 68, .12);
 }
-.dash.redline .rpm-fill { animation: shift-flash 140ms steps(2) infinite; }
+.redline .rpm-fill { animation: shift-flash 140ms steps(2) infinite; }
+
+/* F1-style rev lights: round bulbs, dim glass when off, glowing when lit. */
+.rev-leds {
+  display: grid; grid-template-columns: repeat(15, 1fr); gap: 1.6%;
+  flex-shrink: 0; padding: 1.2% 2%; align-self: center; box-sizing: border-box;
+  /* As wide as the element, but never so wide that the round bulbs outgrow its height. */
+  width: min(100%, calc(var(--led-share) * 12.5cqh));
+  border-radius: 99px; background: #050608; border: 1px solid var(--line);
+}
+.rev-leds i {
+  --c: #22c55e;
+  aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, .10), transparent 60%),
+              color-mix(in srgb, var(--c) 14%, #0b0d10);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent);
+}
+.rev-leds i.r { --c: #ef4444; }
+.rev-leds i.b { --c: #3b82f6; }
+.rev-leds i.on {
+  background: radial-gradient(circle at 35% 30%, #fff 0 12%, var(--c) 45%,
+              color-mix(in srgb, var(--c) 70%, #000) 100%);
+  box-shadow: 0 0 6px 1px var(--c), 0 0 14px 2px color-mix(in srgb, var(--c) 55%, transparent);
+}
+/* At the shift point every bulb blinks, like an F1 wheel. */
+.redline .rev-leds i.on { animation: led-blink 160ms steps(2) infinite; }
+@keyframes led-blink { 50% { background: color-mix(in srgb, var(--c) 14%, #0b0d10); box-shadow: none; } }
 @keyframes shift-flash { 0% { background: var(--accent); } 100% { background: #ef4444; } }
 
 /* Its own size container: the gear fills whatever height the optional rows leave. */
@@ -164,6 +260,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
   font-variant-numeric: tabular-nums;
 }
 .dash.redline #gear { color: var(--accent); }
+#gear small { font-size: .36em; font-weight: 700; color: var(--muted); margin-left: .04em; }
 .dash-side {
   flex: 1; display: flex; flex-direction: column; align-items: center;
   font-size: min(24cqh, 8cqw); font-weight: 600; font-variant-numeric: tabular-nums;
@@ -294,6 +391,17 @@ body.editing .handle { display: block; }
 .hint { margin: 4px 0 0; font-size: .8rem; color: var(--muted); }
 .panel h3 { margin: 22px 0 0; font-size: 1rem; }
 .bind { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.custom-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.custom-row input {
+  flex: 1; min-width: 0; padding: 8px 10px; border-radius: 10px;
+  font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+  user-select: text; -webkit-user-select: text;
+}
+.custom-row select {
+  flex: 1.3; min-width: 0; padding: 8px 6px; border-radius: 10px;
+  font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+}
+.custom-row button { padding: 8px 12px; }
 .bind select {
   min-width: 11em; padding: 8px 10px; border-radius: 10px;
   font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);

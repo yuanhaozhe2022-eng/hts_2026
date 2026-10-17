@@ -134,3 +134,95 @@ def test_estimator_counts_shift_presses_once_per_press():
         hub.on_input(InputState(buttons=BTN_SHIFT_DOWN))
         hub.on_input(InputState())
     assert hub.latest(now=0).gear == 0  # clamps at reverse
+
+
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_beamng_gear_changes_without_shift_presses_mean_automatic():
+    clock = Clock()
+    src = FakeSource()
+    hub = TelemetryHub([src], clock=clock)
+    for t, gear in [(1.0, 2), (2.0, 3), (3.0, 4)]:  # 1st -> 2nd -> 3rd, no presses
+        src.latest = Sample(gear=gear, source="beamng", time=t)
+        result = hub.latest(now=t)
+    assert result.automatic is True
+    assert result.to_message()["au"] is True
+
+
+def test_gear_change_right_after_a_shift_press_means_manual():
+    clock = Clock()
+    src = FakeSource(Sample(gear=2, source="beamng", time=1.0))
+    hub = TelemetryHub([src], clock=clock)
+    assert hub.latest(now=1.0).automatic is None  # nothing known yet
+    clock.now = 1.9
+    hub.on_input(InputState(buttons=BTN_SHIFT_UP))
+    src.latest = Sample(gear=3, source="beamng", time=2.0)
+    assert hub.latest(now=2.0).automatic is False
+
+
+def test_neutral_and_reverse_changes_say_nothing_and_game_flag_wins():
+    src = FakeSource(Sample(gear=1, source="beamng", time=1.0))
+    hub = TelemetryHub([src])
+    for t, gear in [(2.0, 0), (3.0, 1), (4.0, 2)]:  # N -> R -> N -> 1st
+        src.latest = Sample(gear=gear, source="beamng", time=t)
+        assert hub.latest(now=t).automatic is None
+    src.latest = Sample(gear=2, automatic=False, source="assetto", time=5.0)
+    assert hub.latest(now=5.0).automatic is False
+
+
+def test_assetto_reports_auto_shifter():
+    src = AssettoSource(read_pages=lambda: (Physics(packetId=1, autoShifterOn=1), Static(), None))
+    src.poll(now=1.0)
+    assert src.latest.automatic is True
+
+
+def gear_packet(name: bytes, max_rpm=6800.0):
+    from server.telemetry.beamng import GEAR_PACKET
+    return GEAR_PACKET.pack(b"PWG1", name, max_rpm)
+
+
+def test_gear_display_for_beamng_gear_names():
+    from server.telemetry.beamng import gear_display
+    assert gear_display("P", 1) == ("P", None, True)        # Park: OutGauge says 1, same as N
+    assert gear_display("N", 1) == ("N", None, True)
+    assert gear_display("R", 0) == ("R", None, True)
+    assert gear_display("D", 4) == ("D", "3", True)         # D with the actual gear (3rd)
+    assert gear_display("D", 1) == ("D", None, True)        # D while stopped
+    assert gear_display("S3", 4) == ("S", "3", True)
+    assert gear_display("M2", 3) == ("M", "2", True)
+    assert gear_display("3", 4) == ("3", None, False)       # manual gearbox: plain numbers
+    assert gear_display("-1", 0) == ("R", None, False)
+    assert gear_display("0", 1) == ("N", None, False)
+
+
+def test_mod_gear_name_and_redline_are_merged_into_outgauge():
+    src = BeamNGSource()
+    src.handle_gear_packet(gear_packet(b"P\0\0\0\0\0\0\0", 7200.0), now=1.0)
+    src.handle_packet(outgauge(gear=1, rpm=800), now=1.01)
+    s = src.latest
+    assert (s.gear_label, s.gear_sub, s.automatic, s.max_rpm) == ("P", None, True, 7200.0)
+    assert s.to_message()["gl"] == "P"
+    src.handle_packet(outgauge(gear=1, rpm=800), now=3.0)   # mod went quiet: back to OutGauge only
+    assert src.latest.gear_label is None and src.latest.max_rpm == DEFAULT_MAX_RPM
+
+
+def test_non_mod_packets_on_the_gear_port_are_ignored():
+    from server.telemetry.beamng import parse_gear_packet
+    assert parse_gear_packet(b"XXXX" + bytes(12)) is None
+    assert parse_gear_packet(b"PWG1") is None
+    assert parse_gear_packet(gear_packet(b"S3")) == ("S3", 6800.0)
+
+
+def test_beamng_mod_struct_matches_server():
+    """The Lua struct (magic[4], gear[8], float) must match GEAR_PACKET."""
+    from pathlib import Path
+    from server.telemetry.beamng import GEAR_PACKET
+    lua = (Path(__file__).parent.parent / "beamng_mod/lua/vehicle/protocols/phonewheel.lua").read_text()
+    assert "char  magic[4]" in lua and "char  gear[8]" in lua and "float maxrpm" in lua
+    assert GEAR_PACKET.size == 16 and 'return 4445' in lua

@@ -1,17 +1,20 @@
 """Web server: serves the phone UI and links its WebSocket to the pad and telemetry.
 
 WebSocket messages (JSON):
-  phone -> PC  {"t":"in","s":steer,"th":throttle,"br":brake,"b":buttons}
+  phone -> PC  {"t":"in","s":steer,"th":throttle,"br":brake,"b":buttons,
+                "c":[custom buttons held], "a":{custom axis id: v, joystick id: [x, y]}}
                {"t":"ping","id":n}
                {"t":"bind","buttons":{"shift_up":"A",...}}   rebind (partial is fine)
+               {"t":"custom","buttons":[{"id","label","bind"},...]}  replace custom buttons
   PC -> phone  {"t":"tel",...}            telemetry, see telemetry.Sample.to_message
-               {"t":"binds","buttons":{...},"options":[...]}  current bindings
+               {"t":"binds","buttons":{...},"options":[...],"custom":[...],"keys":[...]}
                {"t":"pong","id":n}
                {"t":"rumble","l":0..1,"s":0..1}
                {"t":"kicked"}             another phone took over
 """
 
 import asyncio
+import dataclasses
 import json
 import logging
 import mimetypes
@@ -21,7 +24,9 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 
 from .config import save_config
+from .custom import BIND_OPTIONS, resolve, validate_custom
 from .gamepad import Pad
+from .keyboard import KEYS, Keyboard, NoKeyboard
 from .state import NEUTRAL, XBOX_BUTTONS, parse_input, validate_bindings
 from .telemetry.hub import TelemetryHub
 
@@ -39,17 +44,37 @@ class Session:
     """The one phone currently in control, plus the fail-safe watchdog."""
 
     def __init__(self, pad: Pad, hub: TelemetryHub, watchdog_s: float, clock=time.monotonic,
-                 on_bindings=None):
+                 on_bindings=None, keyboard: Keyboard | None = None, custom_buttons=(),
+                 on_custom=None):
         self.pad, self.hub = pad, hub
+        self.keyboard = keyboard or NoKeyboard()
+        self.custom = list(custom_buttons)
         self.watchdog_s = watchdog_s
         self.clock = clock
         self.on_bindings = on_bindings  # callable(bindings) to persist a rebind
+        self.on_custom = on_custom      # callable(custom buttons) to persist edits
         self.ws: web.WebSocketResponse | None = None
         self.last_input = 0.0
         self.is_neutral = True
 
     def bindings_message(self) -> dict:
-        return {"t": "binds", "buttons": self.pad.bindings, "options": list(XBOX_BUTTONS)}
+        return {"t": "binds", "buttons": self.pad.bindings, "options": list(XBOX_BUTTONS),
+                "custom": self.custom, "keys": list(KEYS),
+                "custom_binds": {kind: list(opts) for kind, opts in BIND_OPTIONS.items()}}
+
+    def set_custom(self, buttons) -> bool:
+        """Replace the custom button list from the phone. Returns False if rejected."""
+        try:
+            custom = validate_custom(buttons)
+        except (ValueError, TypeError) as exc:
+            log.warning("Ignored custom buttons: %s", exc)
+            return False
+        self.custom = custom
+        self.go_neutral()  # nothing held may outlive the button that held it
+        log.info("Custom controls: %s", ", ".join(f"{b['label']} = {b['bind']}" for b in custom) or "none")
+        if self.on_custom:
+            self.on_custom(custom)
+        return True
 
     def set_bindings(self, changes) -> bool:
         """Apply a (partial) rebind from the phone. Returns False if it was rejected."""
@@ -78,13 +103,17 @@ class Session:
 
     def on_input(self, msg: dict) -> None:
         state = parse_input(msg)
+        out = resolve(self.custom, state.custom, dict(state.analog))
+        state = dataclasses.replace(state, extra_buttons=out.pad_buttons, axes=out.axes)
         self.pad.apply(state)
+        self.keyboard.apply(out.keys)
         self.hub.on_input(state)
         self.last_input = self.clock()
         self.is_neutral = False
 
     def go_neutral(self) -> None:
         self.pad.neutral()
+        self.keyboard.release_all()
         self.hub.on_input(NEUTRAL)
         self.is_neutral = True
 
@@ -142,6 +171,9 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
                 session.on_input(data)
             elif kind == "ping":
                 await ws.send_json({"t": "pong", "id": data.get("id")})
+            elif kind == "custom" and ws is session.ws:
+                session.set_custom(data.get("buttons"))
+                await session.send(session.bindings_message())
             elif kind == "bind" and ws is session.ws:
                 session.set_bindings(data.get("buttons"))
                 await session.send(session.bindings_message())  # confirm, or undo a rejected pick
@@ -207,17 +239,22 @@ async def _https_unless_local(request, handler):
 
 
 def create_app(config: dict, pad: Pad, hub: TelemetryHub, cert_dir: Path,
-               config_path: Path | None = None, https_url: str | None = None) -> web.Application:
+               config_path: Path | None = None, https_url: str | None = None,
+               keyboard: Keyboard | None = None) -> web.Application:
     app = web.Application(middlewares=[_log_visitors, _https_unless_local, _no_cache])
     app[VISITORS_KEY] = set()
     app[HTTPS_URL_KEY] = https_url
 
-    def persist_bindings(bindings):
-        config["buttons"] = bindings
-        if config_path:
-            save_config(config_path, config)
+    def persist(key):
+        def save(value):
+            config[key] = value
+            if config_path:
+                save_config(config_path, config)
+        return save
 
-    session = Session(pad, hub, config["watchdog_ms"] / 1000, on_bindings=persist_bindings)
+    session = Session(pad, hub, config["watchdog_ms"] / 1000, on_bindings=persist("buttons"),
+                      keyboard=keyboard, custom_buttons=config.get("custom_buttons", []),
+                      on_custom=persist("custom_buttons"))
     app[SESSION_KEY] = session
     app[CERT_DIR_KEY] = cert_dir
 
@@ -238,6 +275,7 @@ def create_app(config: dict, pad: Pad, hub: TelemetryHub, cert_dir: Path,
         for task in tasks:
             task.cancel()
         hub.stop()
+        session.keyboard.release_all()
         pad.close()
 
     app.cleanup_ctx.append(background)

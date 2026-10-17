@@ -1,6 +1,6 @@
 """Publish fake Assetto Corsa shared memory so the phone dashboard can be tested without the game.
 
-    python tools/fake_assetto.py
+    python tools/fake_assetto.py [--auto]    (--auto: report the auto-shifter as on)
 
 Windows only. Don't run it while AC/ACC itself is running: it creates the same named
 memory the game uses.
@@ -30,6 +30,7 @@ def write(mem, struct_obj) -> None:
 def main() -> None:
     if sys.platform != "win32":
         sys.exit("Assetto Corsa shared memory only exists on Windows.")
+    automatic = int("--auto" in sys.argv)
     physics_mem = page("Local\\acpmf_physics", Physics)
     static_mem = page("Local\\acpmf_static", Static)
     graphics_mem = page("Local\\acpmf_graphics", Graphics)
@@ -56,7 +57,7 @@ def main() -> None:
                 packetId=packet, gear=gear, rpms=int(rpm),
                 speedKmh=(gear - 1) * 35 + (rpm - IDLE) / 120,
                 fuel=TANK * (0.8 - ((now - t0) % 180) / 180 * 0.75),
-                pitLimiterOn=int(laps % 3 == 2), turboBoost=max(0.0, (rpm - 3000) / 5500 * 1.4)))
+                pitLimiterOn=int(laps % 3 == 2), autoShifterOn=automatic, turboBoost=max(0.0, (rpm - 3000) / 5500 * 1.4)))
             write(graphics_mem, Graphics(
                 status=AC_LIVE, completedLaps=laps, position=3 if laps % 2 else 5,
                 iCurrentTime=lap_ms, iLastTime=last_lap, iBestTime=best_lap or 2147483647))

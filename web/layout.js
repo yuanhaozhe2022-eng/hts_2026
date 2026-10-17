@@ -7,13 +7,14 @@ const KEY = "phonewheel.layout.v1";
 const MIN_SIZE = 0.05;
 
 // Landscape defaults: pedals along the edges under the thumbs, shift buttons just
-// inside them, dashboard in the middle.
+// inside them, rev lights and dashboard in the middle.
 export const DEFAULT_LAYOUT = {
   brake:       { x: 0.015, y: 0.18, w: 0.13, h: 0.78 },
   throttle:    { x: 0.855, y: 0.18, w: 0.13, h: 0.78 },
   shiftDown:   { x: 0.165, y: 0.50, w: 0.13, h: 0.30 },
   shiftUp:     { x: 0.705, y: 0.50, w: 0.13, h: 0.30 },
-  dash:        { x: 0.30,  y: 0.03, w: 0.40, h: 0.76 },
+  revs:        { x: 0.30,  y: 0.03, w: 0.40, h: 0.10 },
+  dash:        { x: 0.30,  y: 0.14, w: 0.40, h: 0.65 },
   settingsBtn: { x: 0.475, y: 0.84, w: 0.05, h: 0.10 },
 };
 
@@ -23,37 +24,66 @@ export class Layout {
   constructor(hud, onChange) {
     this.hud = hud;
     this.onChange = onChange;
-    this.elements = new Map([...hud.querySelectorAll("[data-el]")].map((el) => [el.dataset.el, el]));
-    this.boxes = this._load();
-    this.editing = false;
-
-    for (const [name, el] of this.elements) {
-      const handle = document.createElement("div");
-      handle.className = "handle";
-      el.appendChild(handle);
-      this._makeEditable(name, el, handle);
+    this.elements = new Map();
+    this.defaults = { ...DEFAULT_LAYOUT };  // grows with custom buttons
+    this.saved = this._load();
+    // Layouts saved before the rev lights were split out of the dash: give them the dash's
+    // top strip, where they used to be, so nothing overlaps.
+    const d = this.saved.dash;
+    if (d && !this.saved.revs) {
+      this.saved.revs = { x: d.x, y: d.y, w: d.w, h: d.h * 0.13 };
+      this.saved.dash = { ...d, y: d.y + d.h * 0.15, h: d.h * 0.85 };
     }
+    this.boxes = {};
+    this.editing = false;
+    for (const el of hud.querySelectorAll("[data-el]")) this._register(el.dataset.el, el);
     this.apply();
   }
 
   _load() {
-    let saved = {};
     try {
-      saved = JSON.parse(localStorage.getItem(KEY) || "{}");
-    } catch {}
-    const boxes = {};
-    for (const name of Object.keys(DEFAULT_LAYOUT)) boxes[name] = { ...DEFAULT_LAYOUT[name], ...saved[name] };
-    return boxes;
+      return JSON.parse(localStorage.getItem(KEY) || "{}");
+    } catch {
+      return {};
+    }
   }
 
+  _register(name, el) {
+    this.elements.set(name, el);
+    this.boxes[name] = { ...this.defaults[name], ...this.saved[name] };
+    const handle = document.createElement("div");
+    handle.className = "handle";
+    el.appendChild(handle);
+    this._makeEditable(name, el, handle);
+  }
+
+  // Elements created later (custom buttons). Their position is remembered by name.
+  add(name, el, defaultBox) {
+    this.defaults[name] = defaultBox;
+    this._register(name, el);
+    this.apply();
+  }
+
+  remove(name) {
+    this.elements.get(name)?.remove();
+    this.elements.delete(name);
+    delete this.boxes[name];
+    delete this.defaults[name];
+    delete this.saved[name];
+    this.save();
+  }
+
+  // Merged into what was stored, so positions of custom buttons that haven't been
+  // created yet (they arrive from the PC after connecting) aren't lost.
   save() {
+    this.saved = { ...this.saved, ...this.boxes };
     try {
-      localStorage.setItem(KEY, JSON.stringify(this.boxes));
+      localStorage.setItem(KEY, JSON.stringify(this.saved));
     } catch {}
   }
 
   reset() {
-    for (const name of Object.keys(DEFAULT_LAYOUT)) this.boxes[name] = { ...DEFAULT_LAYOUT[name] };
+    for (const name of this.elements.keys()) this.boxes[name] = { ...this.defaults[name] };
     this.save();
     this.apply();
   }

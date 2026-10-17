@@ -10,6 +10,8 @@ export const DEFAULT_SETTINGS = {
   invert: false,
   lockSteering: false,
   vibration: true,
+  gearD: "auto",
+  revStyle: "leds",   // rev lights: "leds" (F1-style bulbs) | "bar"      // show "D" for automatic gearboxes: "auto" (detect) | "on" | "off"
   center: 0,          // calibrated straight-ahead angle, degrees
   gravitySign: null,  // 1 / -1 once learned: which way this phone reports gravity
 };
