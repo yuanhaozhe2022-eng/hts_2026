@@ -2,3 +2,8 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# PhoneWheel local state
+certs/
+config.json
+platform-tools/

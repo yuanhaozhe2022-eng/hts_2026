@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0b0d10">
+  <link rel="icon" href="data:,">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+  <title>PhoneWheel</title>
+</head>
+<body>
+  <section id="start-screen">
+    <h1>PhoneWheel</h1>
+    <p class="lead">Hold your phone sideways like a steering wheel.<br>
+      Left thumb: brake &amp; shift down. Right thumb: throttle &amp; shift up.</p>
+    <div id="ios-tip" class="callout" hidden>
+      <span class="lock-icon" aria-hidden="true">&#128274;</span>
+      <p><strong>iPhone: turn on Rotation Lock first.</strong> Open Control Center and tap the
+        lock button. PhoneWheel turns itself sideways, so the screen can't flip mid-corner.</p>
+    </div>
+    <button id="start-btn" class="primary">Start driving</button>
+    <p id="start-error" class="error" hidden></p>
+    <p class="fine">Tip: on iPhone, use Share &rarr; Add to Home Screen for full screen.</p>
+  </section>
+
+  <main id="hud" hidden>
+    <div class="el bar" data-el="brake" data-kind="brake">
+      <div class="fill"></div>
+      <span class="bar-label">BRAKE</span>
+      <span class="bar-value">0</span>
+    </div>
+
+    <div class="el bar" data-el="throttle" data-kind="throttle">
+      <div class="fill"></div>
+      <span class="bar-label">GAS</span>
+      <span class="bar-value">0</span>
+    </div>
+
+    <div class="el shift" data-el="shiftDown" data-button="shift_down">
+      <span class="shift-icon">&minus;</span><span class="shift-label">DOWN</span>
+    </div>
+
+    <div class="el shift" data-el="shiftUp" data-button="shift_up">
+      <span class="shift-icon">+</span><span class="shift-label">UP</span>
+    </div>
+
+    <div class="el dash" data-el="dash">
+      <div class="rpm"><div class="rpm-fill"></div><div class="rpm-redline"></div></div>
+      <div class="dash-row">
+        <div class="dash-side"><span id="speed">--</span><small>km/h</small></div>
+        <div id="gear">N</div>
+        <div class="dash-side"><span id="rpm-text">0</span><small>rpm</small></div>
+      </div>
+      <!-- Extra telemetry: each item only shows when the current game reports it. -->
+      <div class="dash-info">
+        <span class="info" id="fuel-info" hidden>
+          <span class="fuel-meter"><span id="fuel-fill"></span></span><b id="fuel">--</b>%
+        </span>
+        <span class="info" id="temp-info" hidden><b id="temp">--</b>°C</span>
+        <span class="info" id="boost-info" hidden><b id="boost">--</b> bar</span>
+      </div>
+      <div class="dash-lights" id="lights" hidden>
+        <span data-light="signal_l" title="Left signal">&#9664;</span>
+        <span data-light="abs">ABS</span>
+        <span data-light="tc">TC</span>
+        <span data-light="handbrake" title="Handbrake">(P)</span>
+        <span data-light="pit" title="Pit limiter">PIT</span>
+        <span data-light="highbeam" title="High beam">HI</span>
+        <span data-light="oil" title="Oil warning">OIL</span>
+        <span data-light="battery" title="Battery warning">BAT</span>
+        <span data-light="signal_r" title="Right signal">&#9654;</span>
+      </div>
+      <div class="dash-lap" id="lap" hidden>
+        <span id="lap-pos"></span><span id="lap-no"></span>
+        <span><b id="lap-cur">-:--.---</b></span>
+        <span>last <b id="lap-last">-:--.---</b></span>
+        <span>best <b id="lap-best">-:--.---</b></span>
+      </div>
+      <div class="steer-meter"><div class="steer-center"></div><div id="steer-needle"></div></div>
+      <div class="dash-status">
+        <span id="conn-dot" class="dot"></span><span id="conn-text">connecting</span>
+        <span id="src-badge" class="badge">EST</span>
+      </div>
+    </div>
+
+    <button class="el icon-btn" data-el="settingsBtn" id="settings-btn" aria-label="Settings">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.3 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+    </button>
+
+    <div id="toast" hidden></div>
+
+    <div id="kicked" class="overlay" hidden>
+      <p>Another device took control.</p>
+      <button id="reclaim-btn" class="primary">Take control back</button>
+    </div>
+
+    <div id="edit-bar" hidden>
+      <span>Drag to move &middot; corner handle to resize</span>
+      <button id="layout-reset">Reset</button>
+      <button id="layout-done" class="primary">Done</button>
+    </div>
+
+  <!-- Inside the HUD so it turns with it when the HUD is drawn sideways. -->
+  <div id="settings" class="overlay" hidden>
+    <div class="panel">
+      <h2>Settings</h2>
+
+      <div class="row buttons">
+        <button id="calibrate-btn" class="primary">Center steering</button>
+        <!-- Only on a locked portrait screen: for when the sideways HUD comes out upside down. -->
+        <button id="flip-btn" hidden>Upside down? Flip</button>
+        <button id="edit-layout-btn">Edit layout</button>
+      </div>
+
+      <label class="slider">Steering sensitivity <output data-for="sensitivity"></output>
+        <input type="range" data-setting="sensitivity" min="0.5" max="3" step="0.1">
+      </label>
+      <p class="hint">Higher = less tilt needed for full lock.</p>
+
+      <label class="slider">Steering smoothing <output data-for="smoothing"></output>
+        <input type="range" data-setting="smoothing" min="0" max="1" step="0.05">
+      </label>
+      <p class="hint">0 = most responsive. Raise it if the car twitches on straights.
+        Sensors: <span id="sensor-info">&ndash;</span></p>
+
+      <label class="slider">Center deadzone <output data-for="deadzone"></output>
+        <input type="range" data-setting="deadzone" min="0" max="0.2" step="0.01">
+      </label>
+
+      <label class="slider">Steering curve <output data-for="curve"></output>
+        <input type="range" data-setting="curve" min="1" max="3" step="0.1">
+      </label>
+      <p class="hint">Above 1 makes small corrections gentler near center.</p>
+
+      <label class="toggle"><input type="checkbox" data-setting="invert"> Invert steering</label>
+      <label class="toggle"><input type="checkbox" data-setting="lockSteering"> Lock steering at center
+        <span class="hint">(for binding pedals/buttons in the game's menu)</span></label>
+      <label class="toggle"><input type="checkbox" data-setting="vibration"> Vibration (Android)</label>
+
+      <h3>Controller buttons</h3>
+      <p class="hint">Which Xbox button each phone button presses. Saved on the PC.</p>
+      <label class="bind">Shift up
+        <select data-bind="shift_up" disabled><option>connecting&hellip;</option></select>
+      </label>
+      <label class="bind">Shift down
+        <select data-bind="shift_down" disabled><option>connecting&hellip;</option></select>
+      </label>
+
+      <div class="row buttons">
+        <a class="link" href="/ca.crt">Remove the certificate warning (install CA)</a>
+        <button id="settings-close" class="primary">Close</button>
+      </div>
+    </div>
+  </div>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

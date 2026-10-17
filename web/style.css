@@ -1,0 +1,302 @@
+:root {
+  --bg: #0b0d10;
+  --panel: #151920;
+  --panel-2: #1d232c;
+  --line: #2a313c;
+  --text: #e8edf3;
+  --muted: #8b95a3;
+  --accent: #38bdf8;
+  --gas-1: #16a34a;
+  --gas-2: #84cc16;
+  --brake-1: #dc2626;
+  --brake-2: #f97316;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --bad: #ef4444;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* No scrolling, zooming, text selection or long-press menus while driving. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 16px;
+  touch-action: manipulation;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #04121b; font-weight: 600; }
+
+/* ---------- start screen ---------- */
+#start-screen {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center;
+  touch-action: manipulation;
+}
+#start-screen h1 { margin: 0; font-size: 2rem; letter-spacing: .04em; }
+#start-screen .lead { margin: 0; color: var(--muted); line-height: 1.5; }
+#start-btn { font-size: 1.2rem; padding: 14px 36px; border-radius: 14px; }
+.error { color: var(--bad); margin: 0; max-width: 40em; }
+.fine { color: var(--muted); font-size: .8rem; margin: 0; }
+
+.callout {
+  display: flex; align-items: flex-start; gap: 12px;
+  max-width: 34em; padding: 12px 16px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--warn);
+  text-align: left; font-size: .9rem; line-height: 1.45;
+}
+.callout p { margin: 0; color: var(--muted); }
+.callout strong { color: var(--text); }
+.lock-icon { font-size: 1.5rem; line-height: 1; }
+
+/* ---------- HUD: elements are absolutely placed by layout.js (fractions of the HUD) ---------- */
+#hud {
+  position: fixed;
+  top: env(safe-area-inset-top); bottom: env(safe-area-inset-bottom);
+  left: env(safe-area-inset-left); right: env(safe-area-inset-right);
+}
+/* Portrait screen while driving: orientation.js sizes and turns the HUD sideways. */
+#hud.rotated { top: 0; left: 0; right: auto; bottom: auto; transform-origin: 0 0; }
+.el { position: absolute; }
+
+/* Pedal bars */
+.bar {
+  border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  container-type: size;
+}
+.bar .fill {
+  position: absolute; inset: 0;
+  transform-origin: bottom;
+  transform: scaleY(var(--v, 0));
+}
+.bar.horizontal .fill { transform-origin: left; transform: scaleX(var(--v, 0)); }
+.bar[data-kind="throttle"] .fill { background: linear-gradient(to top, var(--gas-1), var(--gas-2)); }
+.bar[data-kind="brake"] .fill { background: linear-gradient(to top, var(--brake-1), var(--brake-2)); }
+.bar.horizontal[data-kind="throttle"] .fill { background: linear-gradient(to right, var(--gas-1), var(--gas-2)); }
+.bar.horizontal[data-kind="brake"] .fill { background: linear-gradient(to right, var(--brake-1), var(--brake-2)); }
+.bar-label, .bar-value {
+  position: absolute; left: 0; right: 0; text-align: center;
+  font-weight: 700; letter-spacing: .08em; pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .6);
+}
+.bar-label { top: 10px; font-size: clamp(10px, 22cqw, 15px); color: var(--muted); }
+.bar-value { bottom: 10px; font-size: clamp(14px, 32cqw, 24px); font-variant-numeric: tabular-nums; }
+.bar.active { border-color: var(--text); }
+
+/* Shift paddles */
+.shift {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 22px;
+  background: var(--panel-2);
+  border: 2px solid var(--line);
+  container-type: size;
+  transition: transform 60ms, background 60ms;
+}
+.shift-icon { font-size: min(48cqh, 48cqw); font-weight: 700; line-height: 1; }
+.shift-label { font-size: min(14cqh, 14cqw); color: var(--muted); letter-spacing: .1em; font-weight: 600; }
+.shift.active { background: var(--accent); border-color: var(--accent); color: #04121b; transform: scale(.95); }
+.shift.active .shift-label { color: #04121b; }
+
+/* Dashboard */
+.dash {
+  display: flex; flex-direction: column; gap: 3%;
+  padding: 2%;
+  container-type: size;
+  pointer-events: none;
+}
+.rpm {
+  position: relative;
+  height: 13%; flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.rpm-fill {
+  position: absolute; inset: 0;
+  background: linear-gradient(to right, #22c55e 0%, #84cc16 55%, #facc15 75%, #f97316 87%, #ef4444 100%);
+  clip-path: inset(0 calc((1 - var(--r, 0)) * 100%) 0 0);
+}
+/* Segment gaps over the fill, like an LED strip. */
+.rpm::after {
+  content: ""; position: absolute; inset: 0;
+  background: repeating-linear-gradient(to right, transparent 0 calc(5% - 2px), var(--bg) calc(5% - 2px) 5%);
+}
+.rpm-redline {
+  position: absolute; top: 0; bottom: 0; left: 92%; right: 0;
+  border-left: 2px solid var(--bad);
+  background: rgba(239, 68, 68, .12);
+}
+.dash.redline .rpm-fill { animation: shift-flash 140ms steps(2) infinite; }
+@keyframes shift-flash { 0% { background: var(--accent); } 100% { background: #ef4444; } }
+
+/* Its own size container: the gear fills whatever height the optional rows leave. */
+.dash-row {
+  flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0;
+  container-type: size;
+}
+#gear {
+  flex: 0 0 auto; min-width: 1ch;
+  font-size: min(95cqh, 30cqw); font-weight: 800; line-height: 1; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.dash.redline #gear { color: var(--accent); }
+.dash-side {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  font-size: min(24cqh, 8cqw); font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.dash-side small { font-size: .5em; color: var(--muted); font-weight: 500; }
+
+/* Fuel / temperature / boost */
+.dash-info {
+  display: flex; justify-content: center; gap: 6%;
+  font-size: 6cqh; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.dash-info:not(:has(.info:not([hidden]))) { display: none; }
+.info { display: flex; align-items: center; gap: .3em; white-space: nowrap; }
+.info b { color: var(--text); font-weight: 600; }
+.fuel-meter {
+  position: relative; width: 3.2em; height: .7em; border-radius: 3px;
+  background: var(--panel); border: 1px solid var(--line); overflow: hidden;
+}
+#fuel-fill { position: absolute; inset: 0; background: var(--ok); transform-origin: left; transform: scaleX(var(--f, 0)); }
+#fuel-info.low #fuel-fill { background: var(--bad); }
+#fuel-info.low b { color: var(--bad); }
+
+/* Warning lights: shown dim when the car has them, lit when on. */
+.dash-lights { display: flex; justify-content: center; gap: 2.5%; font-size: 5.5cqh; font-weight: 800; }
+.dash-lights span {
+  display: none; padding: .1em .45em; border-radius: 4px;
+  color: var(--line); border: 1px solid var(--line); letter-spacing: .04em;
+}
+.dash-lights span.has { display: inline-block; }
+.dash-lights span.on { color: #04121b; border-color: transparent; }
+.dash-lights [data-light="abs"].on, .dash-lights [data-light="tc"].on,
+.dash-lights [data-light="pit"].on { background: var(--warn); }
+.dash-lights [data-light="handbrake"].on, .dash-lights [data-light="oil"].on,
+.dash-lights [data-light="battery"].on { background: var(--bad); }
+.dash-lights [data-light="highbeam"].on { background: var(--accent); }
+.dash-lights [data-light^="signal"] { border: none; font-size: 1.2em; padding: 0 .2em; }
+.dash-lights [data-light^="signal"].on { color: var(--ok); background: none; }
+
+/* Position / lap times (Assetto Corsa) */
+.dash-lap {
+  display: flex; justify-content: center; gap: 4%;
+  font-size: 5.5cqh; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.dash-lap b { color: var(--text); font-weight: 600; }
+#lap-pos { color: var(--text); font-weight: 800; }
+
+.steer-meter {
+  position: relative; height: 5%; min-height: 4px;
+  margin: 0 15%;
+  border-radius: 99px; background: var(--panel); border: 1px solid var(--line);
+}
+.steer-center { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--muted); }
+#steer-needle {
+  position: absolute; top: -3px; bottom: -3px; left: 50%; width: 8px; margin-left: -4px;
+  border-radius: 4px; background: var(--accent);
+  transform: translateX(calc(var(--s, 0) * 50cqw * .7));
+}
+.steer-locked #steer-needle { background: var(--muted); }
+
+.dash-status {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: 5cqh; color: var(--muted);
+}
+.dot { width: 1.4em; height: 1.4em; max-width: 10px; max-height: 10px; border-radius: 50%; background: var(--warn); }
+.dot.ok { background: var(--ok); }
+.dot.bad { background: var(--bad); }
+.badge {
+  padding: 1px 6px; border-radius: 4px; border: 1px solid var(--warn); color: var(--warn);
+  font-weight: 700; letter-spacing: .06em;
+}
+.badge.live { border-color: var(--ok); color: var(--ok); }
+
+.icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; border-radius: 50%;
+  color: var(--muted);
+}
+
+/* ---------- layout edit mode ---------- */
+body.editing .el {
+  outline: 2px dashed var(--accent); outline-offset: -2px;
+  pointer-events: auto; touch-action: none;
+}
+body.editing .dash { background: rgba(56, 189, 248, .06); }
+.handle {
+  display: none;
+  position: absolute; right: 0; bottom: 0; width: 30px; height: 30px; z-index: 2;
+  background: linear-gradient(135deg, transparent 50%, var(--accent) 50%);
+  border-bottom-right-radius: 8px;
+}
+body.editing .handle { display: block; }
+#edit-bar {
+  position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 20;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px 8px 16px; border-radius: 14px;
+  background: var(--panel); border: 1px solid var(--line);
+  font-size: .85rem; color: var(--muted); white-space: nowrap;
+}
+
+#toast {
+  position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 25;
+  max-width: min(90%, 520px); padding: 10px 14px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--warn); color: var(--text);
+  font-size: .85rem; text-align: center; pointer-events: none;
+}
+
+/* ---------- overlays ---------- */
+.overlay {
+  position: fixed; inset: 0; z-index: 30;
+  background: rgba(5, 7, 10, .82);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  touch-action: pan-x pan-y;
+}
+.panel {
+  width: min(560px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto;
+  padding: 16px 20px; border-radius: 16px;
+  background: var(--panel); border: 1px solid var(--line);
+  user-select: none; touch-action: pan-x pan-y;
+}
+.panel h2 { margin: 0 0 12px; font-size: 1.2rem; }
+.row { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+.row.buttons { justify-content: space-between; flex-wrap: wrap; }
+.slider { display: flex; flex-wrap: wrap; justify-content: space-between; margin-top: 14px; font-size: .95rem; }
+.slider output { color: var(--accent); font-variant-numeric: tabular-nums; }
+.slider input { width: 100%; margin-top: 6px; accent-color: var(--accent); touch-action: pan-x; }
+.toggle { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.toggle input { width: 20px; height: 20px; accent-color: var(--accent); }
+.hint { margin: 4px 0 0; font-size: .8rem; color: var(--muted); }
+.panel h3 { margin: 22px 0 0; font-size: 1rem; }
+.bind { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.bind select {
+  min-width: 11em; padding: 8px 10px; border-radius: 10px;
+  font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+}
+.toggle .hint { margin: 0; flex-basis: 100%; padding-left: 28px; }
+.link { color: var(--accent); font-size: .85rem; }
