@@ -2,7 +2,7 @@
 
     python tools/fake_outgauge.py [--port 4444] [--mod]
 
---mod also sends what the PhoneWheel BeamNG mod sends (gear names: P while parked, then D),
+--mod also sends what the PocketWheel BeamNG mod sends (gear names: P while parked, then D),
 as an automatic car would.
 
 Revs up through the gears and back to neutral in a loop, with fuel, engine temperature,

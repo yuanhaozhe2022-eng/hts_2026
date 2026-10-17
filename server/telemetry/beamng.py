@@ -1,4 +1,4 @@
-"""BeamNG.drive telemetry: OutGauge, plus gear names from the PhoneWheel BeamNG mod.
+"""BeamNG.drive telemetry: OutGauge, plus gear names from the PocketWheel BeamNG mod.
 
 Enable in BeamNG: Options > Other > OutGauge, IP 127.0.0.1, port 4444.
 
@@ -37,7 +37,7 @@ DASH_LIGHTS = {
 }
 # OutGauge has no redline field; start here and learn the real one from the highest RPM seen.
 DEFAULT_MAX_RPM = 4000.0
-# PhoneWheel mod packet: magic, gear name, redline (see beamng_mod/.../phonewheel.lua).
+# PocketWheel mod packet: magic, gear name, redline (see beamng_mod/.../pocketwheel.lua).
 GEAR_PACKET = struct.Struct("<4s8sf")
 GEAR_MAGIC = b"PWG1"
 GEAR_FRESH_S = 1.0
@@ -175,7 +175,7 @@ class BeamNGSource(asyncio.DatagramProtocol):
         if parsed is None:
             return
         if self._gear is None:
-            log.info("BeamNG: PhoneWheel mod connected (real gear names, e.g. P)")
+            log.info("BeamNG: PocketWheel mod connected (real gear names, e.g. P)")
         self._gear = (*parsed, now)
 
     async def start(self) -> None:
@@ -187,7 +187,7 @@ class BeamNGSource(asyncio.DatagramProtocol):
             log.info("Listening for BeamNG OutGauge on %s:%d", self.host, self.port)
         except OSError as exc:
             log.warning("BeamNG telemetry disabled: cannot bind UDP %s:%d (%s). Is another "
-                        "copy of PhoneWheel running?", self.host, self.port, exc)
+                        "copy of PocketWheel running?", self.host, self.port, exc)
         try:
             self._gear_transport, _ = await loop.create_datagram_endpoint(
                 lambda: _GearListener(self), local_addr=(self.host, self.gear_port))

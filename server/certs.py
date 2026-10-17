@@ -32,7 +32,7 @@ def lan_ip() -> str:
 
 def _name(common_name: str) -> x509.Name:
     return x509.Name([
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "PhoneWheel"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "PocketWheel"),
         x509.NameAttribute(NameOID.COMMON_NAME, common_name),
     ])
 
@@ -51,7 +51,7 @@ def _load_or_create_ca(folder: Path):
 
     key = ec.generate_private_key(ec.SECP256R1())
     now = dt.datetime.now(dt.timezone.utc)
-    name = _name("PhoneWheel Local CA")
+    name = _name("PocketWheel Local CA")
     cert = (
         x509.CertificateBuilder()
         .subject_name(name).issuer_name(name)

@@ -7,6 +7,10 @@ A control is {"id": "c1a2", "label": "Cam", "kind": "button" | "joystick" | "axi
   joystick  "stick:right" | "stick:left" (Xbox sticks) or "keys:wasd" | "keys:arrows"
   axis      "axis:RX" | "axis:RY" | "axis:LY" (stick axes, -1..1) or "axis:LT" | "axis:RT" (0..1)
 
+A control may also carry "opts", its own settings from the phone's cog menu (vibration click,
+button mode, color, dead zone, ...). They only change how the phone behaves, so the PC just checks
+and stores them; see OPTION_SPECS.
+
 The phone sends the ids of held buttons ("c") and the values of controls being touched ("a").
 """
 
@@ -31,6 +35,49 @@ STICKS = {"stick:left": ("LX", "LY"), "stick:right": ("RX", "RY")}
 KEY_SETS = {"keys:wasd": ("W", "A", "S", "D"), "keys:arrows": ("UP", "LEFT", "DOWN", "RIGHT")}
 KEY_THRESHOLD = 0.5
 
+ALL_KINDS = frozenset(BIND_OPTIONS)
+ANALOG_KINDS = frozenset({"joystick", "axis"})
+# Per-control options: key -> (kinds it applies to, allowed values: a tuple of choices,
+# bool, or a (min, max) number range).
+OPTION_SPECS = {
+    "haptic": (ALL_KINDS, ("off", "light", "medium", "heavy")),
+    "color": (ALL_KINDS, ("default", "red", "orange", "green", "blue", "purple")),
+    "opacity": (ALL_KINDS, (0.3, 1.0)),
+    "releaseHaptic": (frozenset({"button"}), bool),
+    "mode": (frozenset({"button"}), ("hold", "toggle", "tap", "repeat")),
+    "rate": (frozenset({"button"}), (2, 15)),
+    "spring": (ANALOG_KINDS, bool),
+    "deadzone": (ANALOG_KINDS, (0.0, 0.4)),
+    "invert": (ANALOG_KINDS, bool),
+    "sensitivity": (frozenset({"joystick"}), (0.5, 3.0)),
+    "edgeHaptic": (frozenset({"joystick"}), bool),
+    "centerHaptic": (frozenset({"axis"}), bool),
+}
+
+
+def validate_opts(bid: str, kind: str, opts) -> dict:
+    """Keep the options that apply to this kind; unknown keys are dropped (newer phones)."""
+    if opts is None:
+        return {}
+    if not isinstance(opts, dict):
+        raise ValueError(f"{bid}: opts must be an object")
+    out = {}
+    for key, value in opts.items():
+        if key not in OPTION_SPECS or kind not in OPTION_SPECS[key][0]:
+            continue
+        allowed = OPTION_SPECS[key][1]
+        if allowed is bool:
+            ok = isinstance(value, bool)
+        elif isinstance(allowed[0], str):
+            ok = value in allowed
+        else:
+            ok = (isinstance(value, (int, float)) and not isinstance(value, bool)
+                  and allowed[0] <= value <= allowed[1])
+        if not ok:
+            raise ValueError(f"{bid}: bad value {value!r} for {key}")
+        out[key] = value
+    return out
+
 
 def validate_custom(buttons) -> list[dict]:
     """Check a custom control list from the phone or config.json; raises ValueError."""
@@ -53,7 +100,11 @@ def validate_custom(buttons) -> list[dict]:
         if bind not in BIND_OPTIONS[kind]:
             raise ValueError(f"{bid}: {bind!r} isn't a valid {kind} bind")
         seen.add(bid)
-        out.append({"id": bid, "label": label.strip()[:MAX_LABEL] or "?", "kind": kind, "bind": bind})
+        entry = {"id": bid, "label": label.strip()[:MAX_LABEL] or "?", "kind": kind, "bind": bind}
+        opts = validate_opts(bid, kind, b.get("opts"))
+        if opts:
+            entry["opts"] = opts
+        out.append(entry)
     return out
 
 

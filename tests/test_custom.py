@@ -57,6 +57,23 @@ def test_validate_trims_labels_and_rejects_bad_buttons():
             validate_custom(bad)
 
 
+def test_options_are_kept_per_kind_and_checked():
+    out = validate_custom([
+        {"id": "b1", "label": "Lights", "kind": "button", "bind": "key:L",
+         "opts": {"haptic": "heavy", "mode": "toggle", "rate": 8, "spring": False, "future": 1}},
+        {"id": "j1", "label": "Cam", "kind": "joystick", "bind": "stick:right",
+         "opts": {"spring": False, "deadzone": 0.1, "sensitivity": 2, "mode": "toggle"}},
+        {"id": "a1", "label": "Look", "kind": "axis", "bind": "axis:RX"},
+    ])
+    # Options that don't apply to the kind, or that the PC doesn't know, are dropped.
+    assert out[0]["opts"] == {"haptic": "heavy", "mode": "toggle", "rate": 8}
+    assert out[1]["opts"] == {"spring": False, "deadzone": 0.1, "sensitivity": 2}
+    assert "opts" not in out[2]  # lists saved before options existed still load
+    for bad in ({"haptic": "max"}, {"rate": 99}, {"opacity": "1"}, {"releaseHaptic": 1}, []):
+        with pytest.raises(ValueError):
+            validate_custom([{"id": "b1", "label": "X", "kind": "button", "bind": "pad:A", "opts": bad}])
+
+
 def test_resolve_splits_pad_and_keyboard():
     r = resolve([HORN, LIGHTS], {"c1", "c2", "unknown"}, {})
     assert (r.pad_buttons, r.keys, r.axes) == (frozenset({"Y"}), frozenset({"H"}), ())

@@ -10,17 +10,17 @@
   <link rel="icon" href="data:,">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="style.css">
-  <title>PhoneWheel</title>
+  <title>PocketWheel</title>
 </head>
 <body>
   <section id="start-screen">
-    <h1>PhoneWheel</h1>
+    <h1>PocketWheel</h1>
     <p class="lead">Hold your phone sideways like a steering wheel.<br>
       Left thumb: brake &amp; shift down. Right thumb: throttle &amp; shift up.</p>
     <div id="ios-tip" class="callout" hidden>
       <span class="lock-icon" aria-hidden="true">&#128274;</span>
       <p><strong>iPhone: turn on Rotation Lock first.</strong> Open Control Center and tap the
-        lock button. PhoneWheel turns itself sideways, so the screen can't flip mid-corner.</p>
+        lock button. PocketWheel turns itself sideways, so the screen can't flip mid-corner.</p>
     </div>
     <button id="start-btn" class="primary">Start driving</button>
     <p id="start-error" class="error" hidden></p>
@@ -100,7 +100,7 @@
     <div id="toast" hidden></div>
 
     <div id="kicked" class="overlay" hidden>
-      <p>Another device took control.</p>
+      <p>Another device<span id="kicked-by"></span> has control.</p>
       <button id="reclaim-btn" class="primary">Take control back</button>
     </div>
 
@@ -145,7 +145,20 @@
       <label class="toggle"><input type="checkbox" data-setting="invert"> Invert steering</label>
       <label class="toggle"><input type="checkbox" data-setting="lockSteering"> Lock steering at center
         <span class="hint">(for binding pedals/buttons in the game's menu)</span></label>
-      <label class="toggle"><input type="checkbox" data-setting="vibration"> Vibration (Android)</label>
+      <label class="toggle"><input type="checkbox" data-setting="vibration"> Haptics / vibration
+        <button id="haptic-test" type="button">Test</button></label>
+      <p class="hint" id="haptic-result">Taps on buttons and gear changes. iPhone (iOS 18+): ticks only.</p>
+      <label class="bind">Shift button click
+        <select data-setting="shiftHaptic">
+          <option value="off">Off</option>
+          <option value="light">Light</option>
+          <option value="medium">Medium</option>
+          <option value="heavy">Heavy</option>
+        </select>
+      </label>
+      <label class="toggle"><input type="checkbox" data-setting="hapticShift"> Pulse at the shift point</label>
+      <label class="toggle"><input type="checkbox" data-setting="hapticAbs"> Buzz while ABS works
+        <span class="hint">(Android)</span></label>
       <label class="bind">Rev lights
         <select data-setting="revStyle">
           <option value="leds">LED bulbs (F1)</option>
@@ -173,7 +186,7 @@
       <h3>Custom controls</h3>
       <p class="hint">Extra on-screen controls: buttons (a controller button or keyboard key),
         joysticks (camera, walking, or WASD / arrow keys) and axes (one stick axis or a trigger).
-        Place them with Edit layout.</p>
+        Place them with Edit layout; &#9881; sets each one's click, mode, color and feel.</p>
       <div id="custom-list"></div>
       <div class="row">
         <button data-add-kind="button" disabled>+ Button</button>

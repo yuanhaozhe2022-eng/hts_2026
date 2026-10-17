@@ -1,4 +1,4 @@
-# PhoneWheel (hts_2026)
+# PocketWheel (hts_2026)
 
 Use your phone as a steering wheel + pedals for **BeamNG.drive** and **Assetto Corsa / ACC**.
 
@@ -53,7 +53,7 @@ It logs every connection attempt and exactly how it ended.
 
 **iPhone:** turn on **Rotation Lock** (Control Center → lock button) before you start. A web page
 can't lock landscape on iPhone, so without it a hard turn can flip the screen. With the lock on,
-the screen stays portrait and PhoneWheel draws its controls sideways by itself, following which
+the screen stays portrait and PocketWheel draws its controls sideways by itself, following which
 way round you hold the phone. If they ever come out upside down, tap **Upside down? Flip** in
 Settings (shown only in this mode).
 
@@ -82,12 +82,34 @@ and resize them with Edit layout.
 | + Joystick | Thumbstick, springs back to center    | Right stick (camera), Left stick (walking; replaces steering only while held), W A S D or arrow keys |
 | + Axis     | Slider, springs back                  | Right stick X / Y (look around), Left stick Y, Left / Right trigger |
 
+**Per-control settings (⚙).** Each custom control has a cog next to it in Settings:
+- **Vibration click:** off / light / medium / heavy when touched (iPhone and Android), plus an
+  optional click on release.
+- **Buttons:** *hold*, *toggle* (tap on, tap off), *tap* (one short press), or *rapid fire* with a
+  rate.
+- **Joysticks / axes:** spring back or stay where released, dead zone, sensitivity, invert, a
+  click at full tilt (joystick) or when crossing the middle (axis).
+- **Look:** color and opacity.
+
+The shift buttons' click strength is under Settings → Haptics.
+
 Keys go to whichever window has focus on the PC, i.e. the game. Alt and the Windows key aren't
 offered, and everything held is released by the same 300 ms safety cut-off as the pedals.
 
 **Rev lights.** Settings → *Rev lights*: F1-style LED bulbs (5 green, 5 red, 5 blue, all
 blinking at the shift point), the classic bar, or both. They're a separate element from the
 gear/speed dash, so Edit layout can move and resize them on their own.
+
+**Haptics.** Settings → *Haptics / vibration* (with a **Test** button that says what's wrong if
+you feel nothing). The phone ticks on button presses and thumps on gear changes, pulses at the
+shift point, and buzzes while ABS is working. These come from the telemetry, so they work in any
+game; rumble a game sends to the virtual Xbox controller is added on top.
+- **Android:** full vibration. If Test says "Sent" but nothing happens, turn on Settings →
+  Sound & vibration → *Vibration & haptics* on the phone, and leave Do Not Disturb / Battery Saver.
+- **iPhone:** Safari has no vibration API. On iOS 18+ PocketWheel uses the system haptic tick
+  (the one a toggle switch makes) instead: button taps always tick; gear-change and shift-point
+  ticks are up to iOS and may not fire. No continuous buzz. Needs Settings → Sounds & Haptics →
+  *System Haptics* on.
 
 Tip: turn on **Lock steering at center** in the phone's Settings while binding pedals and
 buttons, so tilting the phone doesn't get picked up instead.
@@ -119,12 +141,12 @@ Ports and the safety timeout are in `config.json` (created on first run).
   its auto-shifter directly; for BeamNG it's detected when the gear changes without you pressing
   a shift button. Settings → *Show "D" for automatic* can force it on or off.
 - **BeamNG P / R / N / D / S / M exactly like the car's dash:** OutGauge can't tell Park from
-  Neutral (BeamNG sends 0 for both), so PhoneWheel includes a tiny BeamNG mod that sends the real
+  Neutral (BeamNG sends 0 for both), so PocketWheel includes a tiny BeamNG mod that sends the real
   gear name and the engine's redline. Install it once with `python main.py --install-beamng-mod`,
   restart BeamNG, then tick **Options → Other → Other protocols** (keep OutGauge on too).
 - The dash badge says **BEAMNG** or **AC** when live data arrives. **EST** means none is: the gear
   is then counted from your shift presses and RPM follows the throttle.
-- Only one copy of PhoneWheel can receive BeamNG data at a time (it owns UDP port 4444).
+- Only one copy of PocketWheel can receive BeamNG data at a time (it owns UDP port 4444).
 
 ## Safety
 

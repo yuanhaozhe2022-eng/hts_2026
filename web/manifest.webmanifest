@@ -1,6 +1,6 @@
 {
-  "name": "PhoneWheel",
-  "short_name": "PhoneWheel",
+  "name": "PocketWheel",
+  "short_name": "PocketWheel",
   "start_url": "/",
   "display": "fullscreen",
   "orientation": "landscape",

@@ -223,6 +223,6 @@ def test_beamng_mod_struct_matches_server():
     """The Lua struct (magic[4], gear[8], float) must match GEAR_PACKET."""
     from pathlib import Path
     from server.telemetry.beamng import GEAR_PACKET
-    lua = (Path(__file__).parent.parent / "beamng_mod/lua/vehicle/protocols/phonewheel.lua").read_text()
+    lua = (Path(__file__).parent.parent / "beamng_mod/lua/vehicle/protocols/pocketwheel.lua").read_text()
     assert "char  magic[4]" in lua and "char  gear[8]" in lua and "float maxrpm" in lua
     assert GEAR_PACKET.size == 16 and 'return 4445' in lua

@@ -10,7 +10,8 @@ WebSocket messages (JSON):
                {"t":"binds","buttons":{...},"options":[...],"custom":[...],"keys":[...]}
                {"t":"pong","id":n}
                {"t":"rumble","l":0..1,"s":0..1}
-               {"t":"kicked"}             another phone took over
+               {"t":"kicked","by":ip}     another phone has control
+The phone connects to /ws?id=<page id>, adding &auto=1 when it reconnects by itself.
 """
 
 import asyncio
@@ -40,6 +41,10 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
+# An automatic reconnect only takes over from a phone that has been silent this long.
+BUSY_S = 1.0
+
+
 class Session:
     """The one phone currently in control, plus the fail-safe watchdog."""
 
@@ -54,6 +59,8 @@ class Session:
         self.on_bindings = on_bindings  # callable(bindings) to persist a rebind
         self.on_custom = on_custom      # callable(custom buttons) to persist edits
         self.ws: web.WebSocketResponse | None = None
+        self.client_id = ""   # page id of the phone in control
+        self.peer = ""        # and its IP address
         self.last_input = 0.0
         self.is_neutral = True
 
@@ -89,12 +96,27 @@ class Session:
             self.on_bindings(bindings)
         return True
 
-    async def attach(self, ws) -> None:
-        old, self.ws = self.ws, ws
-        if old is not None and not old.closed:
-            await old.send_json({"t": "kicked"})
+    async def attach(self, ws, peer: str = "", client_id: str = "", auto: bool = False) -> bool:
+        """Give control to a new connection; the previous phone is told and dropped.
+
+        Tapping Start / Take control back always takes over. An automatic reconnect doesn't
+        take control from another phone that is still driving, otherwise two phones would
+        keep stealing it back and forth. The same page coming back after a dropout always
+        gets back in. Returns False (and closes ws) when refused.
+        """
+        old = self.ws
+        old_alive = old is not None and not old.closed
+        busy = old_alive and self.clock() - self.last_input < BUSY_S
+        if auto and busy and client_id != self.client_id:
+            await ws.send_json({"t": "kicked", "by": self.peer})
+            await ws.close()
+            return False
+        self.ws, self.peer, self.client_id = ws, peer, client_id
+        if old_alive:
+            await old.send_json({"t": "kicked", "by": peer})
             await old.close()
         self.go_neutral()
+        return True
 
     def detach(self, ws) -> None:
         if ws is self.ws:
@@ -155,8 +177,11 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=5.0)
     await ws.prepare(request)
     peer = request.remote
+    auto = request.query.get("auto") == "1"
+    if not await session.attach(ws, peer, request.query.get("id", ""), auto):
+        log.info("Kept control with %s: %s reconnected while it was driving", session.peer, peer)
+        return ws
     log.info("Phone connected: %s", peer)
-    await session.attach(ws)
     await session.send(session.bindings_message())
     try:
         async for msg in ws:
@@ -190,7 +215,7 @@ async def _index(request: web.Request) -> web.FileResponse:
 async def _ca_cert(request: web.Request) -> web.Response:
     body = (request.app[CERT_DIR_KEY] / "ca.crt").read_bytes()
     return web.Response(body=body, content_type="application/x-x509-ca-cert",
-                        headers={"Content-Disposition": 'attachment; filename="phonewheel-ca.crt"'})
+                        headers={"Content-Disposition": 'attachment; filename="pocketwheel-ca.crt"'})
 
 
 @web.middleware

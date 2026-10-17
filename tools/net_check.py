@@ -1,4 +1,4 @@
-"""Find out why a phone can't open the PhoneWheel page over Wi-Fi.
+"""Find out why a phone can't open the PocketWheel page over Wi-Fi.
 
     python tools/net_check.py
 

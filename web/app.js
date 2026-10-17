@@ -2,7 +2,8 @@ import { loadSettings, saveSettings } from "./settings.js";
 import { FULL_LOCK_DEG, Steering, setSteeringReference } from "./steering.js";
 import { AxisSlider, HoldButton, Joystick, PedalBar } from "./controls.js";
 import { Layout } from "./layout.js";
-import { Dash } from "./dash.js";
+import { Dash, SHIFT_AT } from "./dash.js";
+import { BUZZ_MS, buzz, hapticsKind, stop as stopHaptics, tap } from "./haptics.js";
 import { applyRotation, initRotation, isIOS } from "./orientation.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -21,15 +22,15 @@ steering.gravitySign = settings.gravitySign ?? (isIOS ? -1 : 1);
 const dash = new Dash($(".dash"), settings);
 initRotation($("#hud"));
 $("#ios-tip").hidden = !isIOS;
-const vibrate = (ms) => settings.vibration && navigator.vibrate?.(ms);
+const haptic = (strength) => settings.vibration && strength !== "off" && tap(strength);
 
 const bars = {
   brake: new PedalBar($('[data-el="brake"]')),
   throttle: new PedalBar($('[data-el="throttle"]')),
 };
 const buttons = {
-  shiftDown: new HoldButton($('[data-el="shiftDown"]'), () => vibrate(15)),
-  shiftUp: new HoldButton($('[data-el="shiftUp"]'), () => vibrate(15)),
+  shiftDown: new HoldButton($('[data-el="shiftDown"]'), () => haptic(settings.shiftHaptic)),
+  shiftUp: new HoldButton($('[data-el="shiftUp"]'), () => haptic(settings.shiftHaptic)),
 };
 const customControls = new Map();  // id -> HoldButton / Joystick / AxisSlider (user's own)
 const layout = new Layout($("#hud"), () => {
@@ -52,12 +53,16 @@ let latency = null;
 let pingId = 0;
 const pings = new Map();
 
-function connect() {
+// Identifies this page to the PC, so its own reconnects after a dropout always get back in.
+const clientId = Math.random().toString(36).slice(2, 10);
+
+// auto: reconnecting by itself, which never takes control from another phone that's driving.
+function connect(auto = false) {
   kicked = false;
   dash.connection("connecting");
   // Plain ws:// when served from http://localhost (Android over USB).
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${scheme}://${location.host}/ws`);
+  const socket = new WebSocket(`${scheme}://${location.host}/ws?id=${clientId}${auto ? "&auto=1" : ""}`);
   ws = socket;
 
   socket.onopen = () => {
@@ -73,6 +78,7 @@ function connect() {
     }
     if (msg.t === "tel") {
       dash.telemetry(msg);
+      feelTelemetry(msg);
     } else if (msg.t === "binds") {
       showBindings(msg.buttons, msg.options);
       showCustom(msg.custom || [], msg.options, msg.keys || [], msg.custom_binds || {});
@@ -85,6 +91,8 @@ function connect() {
       rumble = Math.max(msg.l, msg.s);
     } else if (msg.t === "kicked") {
       kicked = true;
+      releaseAll();
+      $("#kicked-by").textContent = msg.by ? ` (${msg.by})` : "";
       $("#kicked").hidden = false;
     }
   };
@@ -92,12 +100,14 @@ function connect() {
     if (ws !== socket) return;
     ws = null;
     rumble = 0;
+    shiftPulse = absActive = false;
+    stopHaptics();
     dash.connection("closed");
     for (const select of bindSelects) select.disabled = true;
     setCustomEditorEnabled(false);
     if (kicked) return;
     const delay = Math.min(5000, 500 * 2 ** retries++);
-    setTimeout(connect, delay);
+    setTimeout(() => connect(true), delay);
   };
 }
 
@@ -187,10 +197,45 @@ function frame(now) {
   }
 }
 
-// Game rumble -> phone vibration. The Vibration API has no strength, so use duty cycle.
+// ---------------------------------------------------------------- haptics
+// Feel the car from telemetry, so it works in every game (few games rumble a gamepad):
+// a thump on each gear change, pulses at the shift point, a buzz while ABS works.
+// Rumble the game does send to the virtual controller is added on top.
+let lastGear = null;
+let shiftPulse = false;
+let absActive = false;
+
+function feelTelemetry(t) {
+  // The estimator's gear just follows your own presses, which already tick.
+  if (t.src !== "est" && lastGear != null && t.g !== lastGear) haptic("medium");
+  lastGear = t.g;
+  shiftPulse = settings.hapticShift && t.src !== "est" && (t.sl || (t.m > 0 && t.r / t.m >= SHIFT_AT));
+  absActive = settings.hapticAbs && t.li?.abs === true;
+}
+
+let hapticTick = 0;
 setInterval(() => {
-  if (rumble > 0.05 && !document.hidden) vibrate(Math.round(20 + rumble * 100));
-}, 120);
+  if (!settings.vibration || document.hidden) return;
+  hapticTick++;
+  const strength = Math.max(rumble, absActive ? 0.45 : 0);
+  if (strength > 0.05) buzz(strength);
+  else if (shiftPulse && hapticTick % 2 === 0) tap("light");
+}, BUZZ_MS);
+
+$("#haptic-test").addEventListener("click", () => {
+  const result = $("#haptic-result");
+  if (hapticsKind === "none") {
+    result.textContent = "This browser has no vibration.";
+  } else if (hapticsKind === "ios-switch") {
+    tap("heavy");
+    result.textContent = "Felt a tick? If not: iOS 18 or newer is needed, and Settings → Sounds & Haptics → System Haptics must be on.";
+  } else {
+    const ok = navigator.vibrate([60, 80, 60]);
+    result.textContent = ok
+      ? "Sent. Felt nothing? On the phone: Settings → Sound & vibration → Vibration & haptics on, and not in Do Not Disturb or Battery Saver."
+      : "Chrome blocked it. Tap the page once and try again.";
+  }
+});
 
 // ---------------------------------------------------------------- start / lifecycle
 
@@ -251,7 +296,7 @@ async function start() {
   if (isIOS && window.innerWidth > window.innerHeight) {
     // Still landscape means Rotation Lock is off, so a hard turn could flip the screen.
     showToast("Reminder: turn on Rotation Lock (Control Center → lock button) so the screen " +
-      "can't flip while you steer. PhoneWheel stays sideways by itself.");
+      "can't flip while you steer. PocketWheel stays sideways by itself.");
   }
 
   steering.start();
@@ -440,6 +485,97 @@ const CONTROL_HTML = {
         '<span class="custom-name"></span><span class="shift-label"></span>',
 };
 
+// ⚙ per-control settings, kept with the control on the PC ("opts").
+const OPTION_DEFAULTS = {
+  haptic: "light", releaseHaptic: false, mode: "hold", rate: 8, spring: true, sensitivity: 1,
+  invert: false, edgeHaptic: false, centerHaptic: true, color: "default", opacity: 1,
+};
+const optsOf = (def) => ({
+  ...OPTION_DEFAULTS, deadzone: def.kind === "joystick" ? 0.08 : 0.06, ...def.opts });
+const COLORS = {
+  red: "#ef4444", orange: "#f97316", green: "#22c55e", blue: "#3b82f6", purple: "#a855f7" };
+const pct = (v) => `${Math.round(v * 100)}%`;
+const ALL_KINDS = ["button", "joystick", "axis"];
+const ANALOG = ["joystick", "axis"];
+// What the cog shows, per kind. `when` hides options that don't apply right now.
+const OPTION_UI = [
+  { key: "haptic", label: "Vibration click", kinds: ALL_KINDS,
+    choices: [["off", "Off"], ["light", "Light"], ["medium", "Medium"], ["heavy", "Heavy"]] },
+  { key: "releaseHaptic", label: "Click on release too", kinds: ["button"], check: true },
+  { key: "mode", label: "Mode", kinds: ["button"], choices: [
+    ["hold", "Hold (pressed while touched)"], ["toggle", "Toggle (tap on, tap off)"],
+    ["tap", "Tap (one short press)"], ["repeat", "Rapid fire (while held)"]] },
+  { key: "rate", label: "Rapid-fire rate", kinds: ["button"], range: [2, 15, 1],
+    format: (v) => `${v} /s`, when: (o) => o.mode === "repeat" },
+  { key: "spring", label: "Spring back when released", kinds: ANALOG, check: true },
+  { key: "deadzone", label: "Dead zone", kinds: ANALOG, range: [0, 0.4, 0.01], format: pct },
+  { key: "sensitivity", label: "Sensitivity", kinds: ["joystick"], range: [0.5, 3, 0.1],
+    format: (v) => `×${Number(v).toFixed(1)}` },
+  { key: "invert", label: "Invert", kinds: ANALOG, check: true },
+  { key: "edgeHaptic", label: "Click at full tilt", kinds: ["joystick"], check: true },
+  { key: "centerHaptic", label: "Click when crossing the middle", kinds: ["axis"], check: true,
+    when: (o, def) => isCentered(def.bind) },
+  { key: "color", label: "Color", kinds: ALL_KINDS, choices: [["default", "Default"],
+    ...Object.keys(COLORS).map((c) => [c, c[0].toUpperCase() + c.slice(1)])] },
+  { key: "opacity", label: "Opacity", kinds: ALL_KINDS, range: [0.3, 1, 0.05], format: pct },
+];
+const openCogs = new Set();  // ids whose ⚙ box is open, kept across re-renders
+
+function applyOpts(control, def) {
+  const o = optsOf(def);
+  control.onPress = () => haptic(o.haptic);
+  if (def.kind === "button") {
+    control.mode = o.mode;
+    control.rate = o.rate;
+    control.onRelease = o.releaseHaptic ? () => haptic("light") : null;
+  } else {
+    control.opts = { spring: o.spring, deadzone: o.deadzone, invert: o.invert, sensitivity: o.sensitivity };
+    control.onEdge = def.kind === "joystick" && o.edgeHaptic ? () => haptic("light") : null;
+    control.onCenter = def.kind === "axis" && o.centerHaptic ? () => haptic("light") : null;
+  }
+  const el = control.el;
+  if (COLORS[o.color]) el.style.setProperty("--accent", COLORS[o.color]);
+  else el.style.removeProperty("--accent");
+  el.classList.toggle("colored", !!COLORS[o.color]);
+  el.style.opacity = o.opacity < 1 ? o.opacity : "";
+}
+
+function optionsBox(def, update) {
+  const o = optsOf(def);
+  const box = document.createElement("div");
+  box.className = "custom-opts";
+  const set = (key, value) => update({ opts: { ...def.opts, [key]: value } });
+  for (const ui of OPTION_UI) {
+    if (!ui.kinds.includes(def.kind) || (ui.when && !ui.when(o, def))) continue;
+    const label = Object.assign(document.createElement("label"), { textContent: ui.label });
+    let input;
+    if (ui.check) {
+      input = Object.assign(document.createElement("input"), { type: "checkbox", checked: o[ui.key] });
+      input.addEventListener("change", () => set(ui.key, input.checked));
+      label.prepend(input);
+      label.className = "opt-check";
+      box.append(label);
+      continue;
+    }
+    if (ui.choices) {
+      input = document.createElement("select");
+      input.append(...ui.choices.map(([v, text]) => new Option(text, v)));
+      input.value = o[ui.key];
+      input.addEventListener("change", () => set(ui.key, input.value));
+    } else {
+      const [min, max, step] = ui.range;
+      input = Object.assign(document.createElement("input"), { type: "range", min, max, step, value: o[ui.key] });
+      const out = document.createElement("output");
+      out.textContent = ui.format(o[ui.key]);
+      label.append(" ", out);
+      input.addEventListener("input", () => (out.textContent = ui.format(Number(input.value))));
+      input.addEventListener("change", () => set(ui.key, Number(input.value)));
+    }
+    box.append(label, input);
+  }
+  return box;
+}
+
 function createControl(def) {
   const el = document.createElement("div");
   el.className = `el custom custom-${def.kind}` + (def.kind === "button" ? " shift" : "");
@@ -448,7 +584,7 @@ function createControl(def) {
   $("#hud").insertBefore(el, $("#toast"));
   const control = def.kind === "joystick" ? new Joystick(el)
     : def.kind === "axis" ? new AxisSlider(el, isCentered(def.bind))
-    : new HoldButton(el, () => vibrate(15));
+    : new HoldButton(el);
   control.kind = def.kind;
   return control;
 }
@@ -474,6 +610,7 @@ function showCustom(defs, padOptions, keys, bindOptions) {
     }
     if (def.kind === "axis") control.centered = isCentered(def.bind);
     control.release();
+    applyOpts(control, def);
     control.el.querySelector(".custom-name").textContent = def.label;
     control.el.querySelector(".shift-label").textContent = bindText(def.bind)[1];
   }
@@ -510,13 +647,33 @@ function renderCustomEditor(padOptions, keys) {
     const name = Object.assign(document.createElement("input"), { value: def.label, maxLength: 12 });
     name.setAttribute("aria-label", "Label");
     const bind = bindSelect(def, padOptions, keys);
+    const cog = Object.assign(document.createElement("button"), {
+      textContent: "⚙", title: "Settings for this control", className: "cog" });
     const del = Object.assign(document.createElement("button"), { textContent: "✕", title: "Remove" });
     const update = (change) => sendList(customDefs.map((d, j) => (j === i ? { ...d, ...change } : d)));
     name.addEventListener("change", () => update({ label: name.value.trim() || def.label }));
     bind.addEventListener("change", () => update({ bind: bind.value }));
-    del.addEventListener("click", () => sendList(customDefs.filter((_, j) => j !== i)));
-    row.append(kind, name, bind, del);
-    return row;
+    del.addEventListener("click", () => {
+      openCogs.delete(def.id);
+      sendList(customDefs.filter((_, j) => j !== i));
+    });
+    row.append(kind, name, bind, cog, del);
+
+    const item = document.createElement("div");
+    item.className = "custom-item";
+    const box = optionsBox(def, update);
+    const showBox = (open) => {
+      box.hidden = !open;
+      cog.classList.toggle("open", open);
+    };
+    showBox(openCogs.has(def.id));
+    cog.addEventListener("click", () => {
+      const open = !openCogs.has(def.id);
+      if (open) openCogs.add(def.id); else openCogs.delete(def.id);
+      showBox(open);
+    });
+    item.append(row, box);
+    return item;
   }));
   for (const add of customAddButtons) {
     const kind = add.dataset.addKind;

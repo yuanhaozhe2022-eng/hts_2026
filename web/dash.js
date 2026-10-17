@@ -1,7 +1,7 @@
 // Dashboard: gear, RPM bar with shift light, speed, fuel / temperature / boost, warning
 // lights, lap times, steering meter, connection status.
 
-const SHIFT_AT = 0.92;  // fraction of max RPM where the shift light starts flashing
+export const SHIFT_AT = 0.92;  // fraction of max RPM where the shift light starts flashing
 // F1-style rev lights: 5 green, 5 red, 5 blue bulbs filling between LED_START and SHIFT_AT.
 const LED_COLORS = ["g", "g", "g", "g", "g", "r", "r", "r", "r", "r", "b", "b", "b", "b", "b"];
 const LED_START = 0.55;

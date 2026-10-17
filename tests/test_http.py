@@ -24,7 +24,7 @@ async def fetch(host: str | None, path: str = "/"):
 
 def test_localhost_gets_the_app_over_plain_http():
     status, _, body = asyncio.run(fetch("localhost:8080"))
-    assert status == 200 and "PhoneWheel" in body
+    assert status == 200 and "PocketWheel" in body
 
 
 def test_lan_visitor_is_sent_to_https():

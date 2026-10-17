@@ -79,10 +79,10 @@ def test_watchdog_releases_controls_after_silence():
 def test_new_phone_takes_over_and_old_one_is_told():
     session, pad, _ = make_session()
     first, second = FakeWs(), FakeWs()
-    asyncio.run(session.attach(first))
+    asyncio.run(session.attach(first, "10.0.0.1", "a"))
     session.on_input({"th": 1.0})
-    asyncio.run(session.attach(second))
-    assert first.closed and first.sent == [{"t": "kicked"}]
+    asyncio.run(session.attach(second, "10.0.0.2", "b"))
+    assert first.closed and first.sent == [{"t": "kicked", "by": "10.0.0.2"}]
     assert session.ws is second
     assert pad.state == NEUTRAL  # takeover starts from released controls
     session.detach(first)        # the old socket's cleanup must not drop the new phone
@@ -90,6 +90,31 @@ def test_new_phone_takes_over_and_old_one_is_told():
     session.on_input({"th": 0.4})
     session.detach(second)
     assert session.ws is None and pad.state == NEUTRAL
+
+
+def test_automatic_reconnects_dont_steal_control_from_a_driving_phone():
+    session, pad, clock = make_session()
+    a, b = FakeWs(), FakeWs()
+    asyncio.run(session.attach(a, "10.0.0.1", "a"))
+    session.on_input({"th": 1.0})
+    # Phone B reconnects by itself while A drives: refused, A keeps control.
+    assert not asyncio.run(session.attach(b, "10.0.0.2", "b", auto=True))
+    assert b.closed and b.sent == [{"t": "kicked", "by": "10.0.0.1"}]
+    assert session.ws is a and not a.closed and pad.state != NEUTRAL
+    # A's own page coming back after a dropout always gets in.
+    a2 = FakeWs()
+    assert asyncio.run(session.attach(a2, "10.0.0.1", "a", auto=True))
+    assert session.ws is a2
+    # Once A has gone quiet, an automatic reconnect may take over.
+    clock.now += 2
+    b2 = FakeWs()
+    assert asyncio.run(session.attach(b2, "10.0.0.2", "b", auto=True))
+    assert session.ws is b2 and a2.closed
+    # Tapping "Take control back" always works.
+    session.on_input({"th": 0.5})
+    a3 = FakeWs()
+    assert asyncio.run(session.attach(a3, "10.0.0.1", "a"))
+    assert session.ws is a3 and b2.sent == [{"t": "kicked", "by": "10.0.0.1"}]
 
 
 def test_rebind_from_phone_applies_and_persists():

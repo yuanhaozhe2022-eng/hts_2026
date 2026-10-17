@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent
 
 def print_banner(url: str, http_url: str | None, pad_name: str, dry_run: bool, usb_port) -> None:
     print()
-    print("  PhoneWheel is running")
+    print("  PocketWheel is running")
     print(f"  Controller : {pad_name}")
     if usb_port:
         print(f"  Android over USB: http://localhost:{usb_port}  (see the USB status line below)")
@@ -94,7 +94,7 @@ async def run(args) -> None:
         except OSError as exc:
             # Optional extra port: don't take the whole server down over it.
             logging.warning("Plain HTTP port %d unavailable (%s); USB mode and the short "
-                            "http:// address are off. Is another copy of PhoneWheel running?",
+                            "http:// address are off. Is another copy of PocketWheel running?",
                             http_port, exc.strerror or exc)
             http_port = 0
 
@@ -137,7 +137,7 @@ def main() -> None:
             target = install_mod(ROOT)
         except OSError as exc:
             sys.exit(f"Could not install the BeamNG mod: {exc}")
-        print(f"Installed the PhoneWheel BeamNG mod to:\n  {target}\n")
+        print(f"Installed the PocketWheel BeamNG mod to:\n  {target}\n")
         print("In BeamNG: restart the game, then Options > Other > tick 'Other protocols'")
         print("(keep OutGauge on too). The phone then shows P, R, N, D, S... like the car's dash.")
         return

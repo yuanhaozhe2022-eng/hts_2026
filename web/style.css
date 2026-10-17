@@ -121,6 +121,11 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .shift.active .shift-label { color: #04121b; }
 /* Custom buttons: user's label big, the bound button/key small underneath. */
 .custom { border-radius: 16px; gap: 4%; }
+.custom.colored { border-color: color-mix(in srgb, var(--accent) 70%, transparent); }
+.custom.colored .custom-name { color: var(--accent); }
+.custom.colored.active .custom-name, .custom.latched .custom-name { color: #04121b; }
+.custom.latched { background: var(--accent); border-color: var(--accent); color: #04121b; }
+.custom.latched .shift-label { color: #04121b; }
 .custom-name {
   max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: min(26cqh, 17cqw); font-weight: 700; line-height: 1.1;
@@ -387,6 +392,7 @@ body.editing .handle { display: block; }
 .slider output { color: var(--accent); font-variant-numeric: tabular-nums; }
 .slider input { width: 100%; margin-top: 6px; accent-color: var(--accent); touch-action: pan-x; }
 .toggle { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.toggle button { margin-left: auto; padding: 4px 14px; }
 .toggle input { width: 20px; height: 20px; accent-color: var(--accent); }
 .hint { margin: 4px 0 0; font-size: .8rem; color: var(--muted); }
 .panel h3 { margin: 22px 0 0; font-size: 1rem; }
@@ -402,9 +408,32 @@ body.editing .handle { display: block; }
   font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
 }
 .custom-row button { padding: 8px 12px; }
+.custom-row .cog.open { background: var(--accent); border-color: var(--accent); color: #04121b; }
+.custom-opts {
+  display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center;
+  margin: 8px 0 4px; padding: 10px 12px; border-radius: 12px;
+  background: var(--panel-2); border: 1px solid var(--line);
+}
+.custom-opts select {
+  min-width: 0; padding: 6px 8px; border-radius: 8px;
+  font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
+}
+.custom-opts input[type="range"] { width: 100%; accent-color: var(--accent); touch-action: pan-x; }
+.custom-opts output { color: var(--accent); font-variant-numeric: tabular-nums; }
+.custom-opts .opt-check { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+.custom-opts .opt-check input { width: 18px; height: 18px; accent-color: var(--accent); }
 .bind select {
   min-width: 11em; padding: 8px 10px; border-radius: 10px;
   font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
 }
 .toggle .hint { margin: 0; flex-basis: 100%; padding-left: 28px; }
 .link { color: var(--accent); font-size: .85rem; }
+
+/* The settings button always stays on top and tappable, even under an old saved layout. */
+[data-el="settingsBtn"] { z-index: 15; }
+.keep-out {
+  position: absolute; display: none; pointer-events: none; z-index: 14; border-radius: 10px;
+  border: 2px dashed #ef4444; background: repeating-linear-gradient(
+    45deg, rgba(239, 68, 68, .14) 0 6px, transparent 6px 12px);
+}
+body.editing .keep-out { display: block; }

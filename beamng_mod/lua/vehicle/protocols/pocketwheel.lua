@@ -1,9 +1,9 @@
--- PhoneWheel helper for BeamNG.drive.
+-- PocketWheel helper for BeamNG.drive.
 --
 -- OutGauge only sends a gear number, and BeamNG's automatics report Park and Neutral both
 -- as 0, so the phone can't show "P". This tiny protocol sends what the in-game dash shows
 -- (P, R, N, D, S3, M2, or the number in a manual) plus the engine's real redline to the
--- PhoneWheel server, next to the OutGauge data.
+-- PocketWheel server, next to the OutGauge data.
 --
 -- BeamNG runs it when Options > Other > "Other protocols" is enabled.
 -- Install with:  python main.py --install-beamng-mod

@@ -1,14 +1,15 @@
-"""Install the PhoneWheel BeamNG mod (real gear names such as P, and the redline).
+"""Install the PocketWheel BeamNG mod (real gear names such as P, and the redline).
 
 Copies beamng_mod/ into BeamNG's user folder as an unpacked mod:
-  %LOCALAPPDATA%/BeamNG/BeamNG.drive/current/mods/unpacked/phonewheel/
+  %LOCALAPPDATA%/BeamNG/BeamNG.drive/current/mods/unpacked/pocketwheel/
 """
 
 import os
 import shutil
 from pathlib import Path
 
-MOD_NAME = "phonewheel"
+MOD_NAME = "pocketwheel"
+OLD_MOD_NAME = "phonewheel"
 
 
 def beamng_user_folder() -> Path | None:
@@ -31,5 +32,7 @@ def install_mod(project_root: Path) -> Path:
     if user is None:
         raise FileNotFoundError("BeamNG.drive user folder not found (has the game been started once?)")
     target = user / "mods" / "unpacked" / MOD_NAME
+    # Remove the copy installed under the project's old name, so BeamNG doesn't run both.
+    shutil.rmtree(user / "mods" / "unpacked" / OLD_MOD_NAME, ignore_errors=True)
     shutil.copytree(project_root / "beamng_mod", target, dirs_exist_ok=True)
     return target

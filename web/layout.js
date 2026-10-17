@@ -3,7 +3,8 @@
 
 import { hudPoint } from "./orientation.js";
 
-const KEY = "phonewheel.layout.v1";
+const KEY = "pocketwheel.layout.v1";
+const OLD_KEY = "phonewheel.layout.v1";  // before the rename; read once so nothing is lost
 const MIN_SIZE = 0.05;
 
 // Landscape defaults: pedals along the edges under the thumbs, shift buttons just
@@ -19,6 +20,15 @@ export const DEFAULT_LAYOUT = {
 };
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+
+// The settings button can never be covered: nothing may be dragged or resized into this
+// margin around it (and it can't be dragged onto anything), so it always stays tappable.
+const SETTINGS = "settingsBtn";
+const KEEP_OUT = { x: 0.02, y: 0.04 };
+const overlaps = (a, b) =>
+  a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+const padded = (b) => ({ x: b.x - KEEP_OUT.x, y: b.y - KEEP_OUT.y,
+                         w: b.w + 2 * KEEP_OUT.x, h: b.h + 2 * KEEP_OUT.y });
 
 export class Layout {
   constructor(hud, onChange) {
@@ -36,13 +46,17 @@ export class Layout {
     }
     this.boxes = {};
     this.editing = false;
+    // Shows the keep-out zone around the settings button while editing.
+    this.keepOut = document.createElement("div");
+    this.keepOut.className = "keep-out";
+    hud.appendChild(this.keepOut);
     for (const el of hud.querySelectorAll("[data-el]")) this._register(el.dataset.el, el);
     this.apply();
   }
 
   _load() {
     try {
-      return JSON.parse(localStorage.getItem(KEY) || "{}");
+      return JSON.parse(localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY) || "{}");
     } catch {
       return {};
     }
@@ -97,12 +111,26 @@ export class Layout {
       el.style.width = `${b.w * 100}%`;
       el.style.height = `${b.h * 100}%`;
     }
+    const z = this.boxes[SETTINGS] && padded(this.boxes[SETTINGS]);
+    if (z) {
+      Object.assign(this.keepOut.style, {
+        left: `${z.x * 100}%`, top: `${z.y * 100}%`, width: `${z.w * 100}%`, height: `${z.h * 100}%` });
+    }
     this.onChange?.();
   }
 
   setEditing(on) {
     this.editing = on;
     document.body.classList.toggle("editing", on);
+  }
+
+  // Would this box for `name` cover the settings button (or, for the button, cover anything)?
+  _blocked(name, box) {
+    if (name === SETTINGS) {
+      const zone = padded(box);
+      return [...this.elements.keys()].some((n) => n !== SETTINGS && overlaps(zone, this.boxes[n]));
+    }
+    return overlaps(box, padded(this.boxes[SETTINGS]));
   }
 
   _makeEditable(name, el, handle) {
@@ -135,7 +163,15 @@ export class Layout {
         b.w = clamp(b.w + dx, MIN_SIZE, 1 - b.x);
         b.h = clamp(b.h + dy, MIN_SIZE, 1 - b.y);
       }
-      this.boxes[name] = b;
+      // Into the keep-out zone: slide along its edge (keep whichever axis is still allowed)
+      // or stay put.
+      const now = this.boxes[name];
+      const tries = drag.mode === "move"
+        ? [b, { ...b, y: now.y }, { ...b, x: now.x }]
+        : [b, { ...b, h: now.h }, { ...b, w: now.w }];
+      const ok = tries.find((t) => !this._blocked(name, t));
+      if (!ok) return;
+      this.boxes[name] = ok;
       this.apply();
     });
 
