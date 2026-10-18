@@ -4,6 +4,8 @@ import { AxisSlider, HoldButton, Joystick, PedalBar } from "./controls.js";
 import { Layout } from "./layout.js";
 import { Dash, SHIFT_AT } from "./dash.js";
 import { BUZZ_MS, buzz, hapticsKind, stop as stopHaptics, tap } from "./haptics.js";
+import { BackTap } from "./backtap.js";
+import { LensTap } from "./lenstap.js";
 import { applyRotation, initRotation, isIOS } from "./orientation.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -62,7 +64,8 @@ function connect(auto = false) {
   dash.connection("connecting");
   // Plain ws:// when served from http://localhost (Android over USB).
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${scheme}://${location.host}/ws?id=${clientId}${auto ? "&auto=1" : ""}`);
+  const socket = new WebSocket(
+    `${scheme}://${location.host}/ws?id=${clientId}&p=${settings.player}${auto ? "&auto=1" : ""}`);
   ws = socket;
 
   socket.onopen = () => {
@@ -80,6 +83,7 @@ function connect(auto = false) {
       dash.telemetry(msg);
       feelTelemetry(msg);
     } else if (msg.t === "binds") {
+      showPlayer(msg.player ?? 1);
       showBindings(msg.buttons, msg.options);
       showCustom(msg.custom || [], msg.options, msg.keys || [], msg.custom_binds || {});
     } else if (msg.t === "pong" && pings.has(msg.id)) {
@@ -89,6 +93,15 @@ function connect(auto = false) {
       dash.connection("open", latency);
     } else if (msg.t === "rumble") {
       rumble = Math.max(msg.l, msg.s);
+    } else if (msg.t === "gshift") {  // the laptop's webcam saw a tap on the back
+      const button = msg.dir === "up" ? buttons.shiftUp : buttons.shiftDown;
+      button.el.classList.add("active");
+      setTimeout(() => button.pressed || button.el.classList.remove("active"), 120);
+      haptic(settings.shiftHaptic);
+    } else if (msg.t === "vib") {
+      showVibration(msg);
+    } else if (msg.t === "ffb") {
+      showFfb(msg);
     } else if (msg.t === "kicked") {
       kicked = true;
       releaseAll();
@@ -105,6 +118,9 @@ function connect(auto = false) {
     dash.connection("closed");
     for (const select of bindSelects) select.disabled = true;
     setCustomEditorEnabled(false);
+    for (const input of vibInputs) input.disabled = true;
+    for (const input of ffbInputs) input.disabled = true;
+    $("#vib-test").disabled = true;
     if (kicked) return;
     const delay = Math.min(5000, 500 * 2 ** retries++);
     setTimeout(() => connect(true), delay);
@@ -316,18 +332,64 @@ async function start() {
   }, 2000);
 
   connect();
+  updateLensTap();
   requestAnimationFrame(frame);
 }
 
 $("#start-btn").addEventListener("click", start);
+
+// ---------------------------------------------------------------- players
+// Each player's phone drives its own virtual Xbox controller on the PC (BeamNG multiseat).
+
+function markPlayer(player) {
+  for (const b of document.querySelectorAll("[data-player]")) {
+    b.setAttribute("aria-checked", String(Number(b.dataset.player) === player));
+  }
+  $("#player-select").value = String(player);
+  $("#player-badge").textContent = `P${player}`;
+}
+markPlayer(settings.player);
+
+for (const b of document.querySelectorAll("[data-player]")) {
+  b.addEventListener("click", () => {
+    settings.player = Number(b.dataset.player);
+    saveSettings(settings);
+    markPlayer(settings.player);
+  });
+}
+
+// What the PC actually gave us (it falls back to Player 1 if it only allows one).
+function showPlayer(player) {
+  markPlayer(player);
+  if (player !== settings.player) {
+    showToast(`The PC only allows Player ${player} ("players" in config.json).`);
+  }
+  if (player !== 1) {
+    $("#vib-status").textContent = $("#ffb-status").textContent =
+      "Player 1's phone controls the mount's motors.";
+  }
+}
+
+$("#player-select").addEventListener("change", (e) => {
+  settings.player = Number(e.target.value);
+  saveSettings(settings);
+  markPlayer(settings.player);
+  releaseAll();
+  const old = ws;
+  ws = null;      // so the old socket's close doesn't schedule its own reconnect
+  old?.close();
+  connect();      // a deliberate switch: takes that player's slot
+});
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     // Lift everything immediately rather than waiting for the PC's watchdog.
     releaseAll();
     send(currentInput(true));
+    updateLensTap();  // the camera goes off with the page
   } else if (document.body.classList.contains("driving")) {
     keepAwake();
+    updateLensTap();
   }
 });
 
@@ -349,6 +411,7 @@ const formats = {
   smoothing: (v) => `${Math.round(v * 100)}%`,
   deadzone: (v) => `${Math.round(v * 100)}%`,
   curve: (v) => Number(v).toFixed(1),
+  backTapSensitivity: (v) => `${Math.round(v * 100)}%`,
 };
 
 for (const input of panel.querySelectorAll("[data-setting]")) {
@@ -408,7 +471,116 @@ for (const select of bindSelects) {
     send({ t: "bind", buttons: { [select.dataset.bind]: select.value } });
   });
 }
-$("#settings-close").addEventListener("click", () => (panel.hidden = true));
+$("#settings-close").addEventListener("click", () => {
+  panel.hidden = true;
+  backTap.cancelLearning();
+});
+
+// ---------------------------------------------------------------- experimental: shift without buttons
+// Tap the back of the phone (motion sensors, backtap.js) or cover the rear camera (lenstap.js).
+
+function gestureShift(direction) {
+  (direction === "up" ? buttons.shiftUp : buttons.shiftDown).pulse();
+  haptic(settings.shiftHaptic);
+}
+const gesturesAllowed = () => document.body.classList.contains("driving") && panel.hidden &&
+  !layout.editing && !document.hidden;
+
+const backTap = new BackTap(settings, (tap) =>
+  gestureShift(tap === "right" || tap === "single" ? "up" : "down"));
+backTap.enabled = gesturesAllowed;
+
+$("#backtap-learn").addEventListener("click", () => {
+  const info = $("#backtap-info");
+  backTap.learn((text, done) => {
+    info.textContent = text;
+    if (!done) return;
+    saveSettings(settings);
+    if (settings.backTap === "off") {  // learning means they want it: switch it on
+      settings.backTap = settings.backTapCal.separable ? "sides" : "double";
+      saveSettings(settings);
+      panel.querySelector('[data-setting="backTap"]').value = settings.backTap;
+    }
+  });
+});
+
+const lensTap = new LensTap(() => gestureShift(settings.lensTap));
+lensTap.enabled = gesturesAllowed;
+const LENS_HINT = $("#lenstap-info").textContent;
+
+async function updateLensTap() {
+  const wanted = settings.lensTap !== "off" && document.body.classList.contains("driving") &&
+    !document.hidden;
+  if (!wanted) {
+    lensTap.stop();
+    $("#lenstap-info").textContent = LENS_HINT;
+    return;
+  }
+  $("#lenstap-info").textContent = await lensTap.start();
+}
+panel.querySelector('[data-setting="lensTap"]').addEventListener("input", updateLensTap);
+
+// ---------------------------------------------------------------- vibration motors (kept on the PC)
+// Small motors in the phone mount, run by an Arduino on the PC (server/vibration.py).
+
+const vibInputs = [...document.querySelectorAll("[data-vib]")];
+const vibOutput = (key) => panel.querySelector(`output[data-vib-out="${key}"]`);
+
+function showVibration(msg) {
+  $("#vib-status").textContent = msg.status === "off"
+    ? "Off. Plug the mount's Arduino into the PC, then turn it on."
+    : msg.status;
+  for (const input of vibInputs) {
+    const key = input.dataset.vib;
+    if (input.type === "checkbox") input.checked = msg.settings[key];
+    else if (document.activeElement !== input) input.value = msg.settings[key];
+    const out = vibOutput(key);
+    if (out) out.textContent = `${Math.round(input.value * 100)}%`;
+    input.disabled = false;
+  }
+  $("#vib-test").disabled = !msg.settings.enabled;
+}
+
+for (const input of vibInputs) {
+  const key = input.dataset.vib;
+  input.addEventListener("input", () => {
+    const out = vibOutput(key);
+    if (out) out.textContent = `${Math.round(input.value * 100)}%`;
+  });
+  input.addEventListener("change", () => send({
+    t: "vib", settings: { [key]: input.type === "checkbox" ? input.checked : Number(input.value) } }));
+}
+$("#vib-test").addEventListener("click", () => send({ t: "vib", test: true }));
+
+// ---------------------------------------------------------------- force feedback (kept on the PC)
+// A motorised base the phone clips onto, driven by an Arduino on the PC (server/ffb.py).
+
+const ffbInputs = [...document.querySelectorAll("[data-ffb]")];
+const ffbOutput = (key) => panel.querySelector(`output[data-ffb-out="${key}"]`);
+
+function showFfb(msg) {
+  $("#ffb-status").textContent = msg.status === "off"
+    ? "Off. Plug the base's Arduino into the PC, then turn it on."
+    : msg.status;
+  for (const input of ffbInputs) {
+    const key = input.dataset.ffb;
+    if (input.type === "checkbox") input.checked = msg.settings[key];
+    else if (document.activeElement !== input) input.value = msg.settings[key];
+    const out = ffbOutput(key);
+    if (out) out.textContent = `${Math.round(input.value * 100)}%`;
+    input.disabled = false;
+  }
+}
+
+for (const input of ffbInputs) {
+  const key = input.dataset.ffb;
+  input.addEventListener("input", () => {
+    const out = ffbOutput(key);
+    if (out) out.textContent = `${Math.round(input.value * 100)}%`;
+  });
+  input.addEventListener("change", () => send({
+    t: "ffb", settings: { [key]: input.type === "checkbox" ? input.checked : Number(input.value) } }));
+}
 
 // ---------------------------------------------------------------- custom controls (kept on the PC)
 // Buttons (Xbox button or keyboard key), joysticks (a stick or WASD / arrow keys) and axes

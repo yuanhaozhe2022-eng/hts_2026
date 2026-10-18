@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PocketWheel Webcam Taps</title>
+  <style>
+    :root {
+      --bg: #0b0d10; --panel: #151920; --panel-2: #1d232c; --line: #2a313c;
+      --text: #e6e9ef; --muted: #8a93a3; --accent: #38bdf8; --good: #22c55e; --bad: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 980px; margin: 0 auto; }
+    h1 { font-size: 1.3rem; margin: 0 0 4px; }
+    .muted { color: var(--muted); }
+    .stage {
+      position: relative; margin: 14px 0; border-radius: 14px; overflow: hidden;
+      background: #000; border: 1px solid var(--line); aspect-ratio: 4 / 3; max-height: 70vh;
+    }
+    video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+    video { transform: scaleX(-1); }  /* shown like a mirror; maths uses the raw picture */
+    .hands { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .hand {
+      padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line);
+      transition: background .15s, border-color .15s;
+    }
+    .hand.tap { background: var(--accent); border-color: var(--accent); color: #04121b; }
+    .hand .name { font-weight: 700; }
+    .meter { height: 8px; margin-top: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+    .meter div { height: 100%; width: 0; background: var(--accent); }
+    .hand.tap .meter div { background: #04121b; }
+    .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-top: 14px; }
+    label { display: flex; align-items: center; gap: 8px; }
+    input[type="range"] { width: 180px; accent-color: var(--accent); }
+    select {
+      padding: 6px 8px; border-radius: 8px; font: inherit;
+      color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+    }
+    button {
+      padding: 10px 18px; border-radius: 10px; font: inherit; font-weight: 600; cursor: pointer;
+      color: #04121b; background: var(--accent); border: 1px solid var(--accent);
+    }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+    .dot.ok { background: var(--good); } .dot.bad { background: var(--bad); }
+    #result { margin: 12px 0 0; padding: 10px 14px; border-radius: 10px; background: var(--panel); }
+    #result.ok { border-left: 4px solid var(--good); }
+    #result.bad { border-left: 4px solid var(--bad); }
+    #result:empty { display: none; }
+    @media (max-width: 560px) { .hands { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Webcam taps <span class="muted">(experimental)</span></h1>
+    <p class="muted">Hold the phone like a wheel in front of the laptop, thumbs resting along its
+      top edge, where the webcam can see them. Lift a thumb and tap it back down on the edge:
+      <b>left thumb = shift down</b>, <b>right thumb = shift up</b>.
+      Video stays on this computer; only "tap left/right" goes to PocketWheel.</p>
+
+    <p class="muted"><b>Then click into BeamNG:</b> the game only reads the controller while it's
+      the focused window. Opened with <code>python main.py --cam</code>, this window keeps watching
+      while it's behind the game; an ordinary browser tab pauses itself there.</p>
+
+    <button id="start">Start webcam</button>
+    <span id="status" class="muted"></span>
+
+    <div class="stage" hidden>
+      <video id="video" muted playsinline></video>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <div class="hands">
+      <div class="hand" data-side="left"><span class="name">Left · shift down</span>
+        <span class="muted" data-info>not seen</span><div class="meter"><div></div></div></div>
+      <div class="hand" data-side="right"><span class="name">Right · shift up</span>
+        <span class="muted" data-info>not seen</span><div class="meter"><div></div></div></div>
+    </div>
+
+    <p id="result" aria-live="polite"></p>
+
+    <div class="row">
+      <label>Tap with
+        <select id="part">
+          <option value="thumb">Thumbs on the top edge</option>
+          <option value="fingers">Fingers on the back</option>
+        </select></label>
+      <label>Sensitivity <input id="sensitivity" type="range" min="0" max="1" step="0.05"></label>
+      <label><input id="swap" type="checkbox"> Swap left / right (if your webcam mirrors)</label>
+      <span><span id="link-dot" class="dot"></span> <span id="link" class="muted">PocketWheel: connecting</span></span>
+    </div>
+  </main>
+  <script type="module" src="cam.js"></script>
+</body>
+</html>

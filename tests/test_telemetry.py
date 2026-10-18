@@ -71,6 +71,7 @@ def test_assetto_struct_layout_matches_shared_memory():
     assert Physics.speedKmh.offset == 28
     assert Physics.pitLimiterOn.offset == 248
     assert Physics.turboBoost.offset == 276
+    assert Physics.finalFF.offset == 308
     assert Static.maxRpm.offset == 412
     assert Static.maxFuel.offset == 416
     assert Graphics.completedLaps.offset == 132

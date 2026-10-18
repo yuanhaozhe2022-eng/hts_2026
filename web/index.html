@@ -22,6 +22,10 @@
       <p><strong>iPhone: turn on Rotation Lock first.</strong> Open Control Center and tap the
         lock button. PocketWheel turns itself sideways, so the screen can't flip mid-corner.</p>
     </div>
+    <div class="player-pick" role="radiogroup" aria-label="Player">
+      <button type="button" role="radio" data-player="1">Player 1</button>
+      <button type="button" role="radio" data-player="2">Player 2</button>
+    </div>
     <button id="start-btn" class="primary">Start driving</button>
     <p id="start-error" class="error" hidden></p>
     <p class="fine">Tip: on iPhone, use Share &rarr; Add to Home Screen for full screen.</p>
@@ -90,6 +94,7 @@
       <div class="dash-status">
         <span id="conn-dot" class="dot"></span><span id="conn-text">connecting</span>
         <span id="src-badge" class="badge">EST</span>
+        <span id="player-badge" class="badge">P1</span>
       </div>
     </div>
 
@@ -121,6 +126,13 @@
         <button id="flip-btn" hidden>Upside down? Flip</button>
         <button id="edit-layout-btn">Edit layout</button>
       </div>
+
+      <label class="bind">Player
+        <select id="player-select">
+          <option value="1">Player 1</option>
+          <option value="2">Player 2 (second controller)</option>
+        </select>
+      </label>
 
       <label class="slider">Steering sensitivity <output data-for="sensitivity"></output>
         <input type="range" data-setting="sensitivity" min="0.5" max="3" step="0.1">
@@ -182,6 +194,65 @@
       <label class="bind">Shift down
         <select data-bind="shift_down" disabled><option>connecting&hellip;</option></select>
       </label>
+
+      <h3>Vibration motors (phone mount)</h3>
+      <p class="hint" id="vib-status">Not connected to the PC.</p>
+      <label class="toggle"><input type="checkbox" data-vib="enabled" disabled> Vibration motors on
+        <button id="vib-test" type="button" disabled>Test</button></label>
+      <label class="slider">Strength <output data-vib-out="strength"></output>
+        <input type="range" data-vib="strength" min="0" max="1" step="0.05" disabled>
+      </label>
+      <label class="toggle"><input type="checkbox" data-vib="game" disabled> Game rumble</label>
+      <label class="toggle"><input type="checkbox" data-vib="gears" disabled> Thump on gear changes</label>
+      <label class="toggle"><input type="checkbox" data-vib="shift" disabled> Pulse at the shift point</label>
+      <label class="toggle"><input type="checkbox" data-vib="abs" disabled> Buzz while ABS works</label>
+      <label class="toggle"><input type="checkbox" data-vib="engine" disabled> Engine hum
+        <span class="hint">(light buzz that rises with RPM)</span></label>
+
+      <h3>Force feedback (motor base)</h3>
+      <p class="hint" id="ffb-status">Not connected to the PC.</p>
+      <label class="toggle"><input type="checkbox" data-ffb="enabled" disabled> Force feedback on</label>
+      <label class="slider">Strength <output data-ffb-out="strength"></output>
+        <input type="range" data-ffb="strength" min="0" max="1" step="0.05" disabled>
+      </label>
+      <label class="slider">Centering spring <output data-ffb-out="spring"></output>
+        <input type="range" data-ffb="spring" min="0" max="1" step="0.05" disabled>
+      </label>
+      <p class="hint">Used when the game has no force feedback of its own (BeamNG). Assetto Corsa /
+        ACC send their own.</p>
+      <label class="slider">Damping <output data-ffb-out="damping"></output>
+        <input type="range" data-ffb="damping" min="0" max="1" step="0.05" disabled>
+      </label>
+      <p class="hint">Raise it if the wheel wobbles or overshoots center.</p>
+      <label class="slider">Road feel <output data-ffb-out="road"></output>
+        <input type="range" data-ffb="road" min="0" max="1" step="0.05" disabled>
+      </label>
+      <label class="toggle"><input type="checkbox" data-ffb="invert" disabled> Invert direction
+        <span class="hint">(motor pushes away from center)</span></label>
+
+      <h3>Experimental: shift without buttons</h3>
+      <label class="bind">Tap the back of the phone
+        <select data-setting="backTap">
+          <option value="off">Off</option>
+          <option value="sides">Left side = down, right = up</option>
+          <option value="double">Tap = up, double tap = down</option>
+        </select>
+      </label>
+      <label class="slider">Back tap sensitivity <output data-for="backTapSensitivity"></output>
+        <input type="range" data-setting="backTapSensitivity" min="0" max="1" step="0.05">
+      </label>
+      <div class="row buttons"><button id="backtap-learn" type="button">Learn my taps</button></div>
+      <p class="hint" id="backtap-info">Hold the phone like a wheel, press Learn, then tap the back
+        with a finger as asked. Taps on the screen don't count.</p>
+      <label class="bind">Cover the rear camera
+        <select data-setting="lensTap">
+          <option value="off">Off</option>
+          <option value="up">Shift up</option>
+          <option value="down">Shift down</option>
+        </select>
+      </label>
+      <p class="hint" id="lenstap-info">Uses the rear camera (asks permission) and more battery.
+        Needs some light to see the finger.</p>
 
       <h3>Custom controls</h3>
       <p class="hint">Extra on-screen controls: buttons (a controller button or keyboard key),

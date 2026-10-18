@@ -153,3 +153,19 @@ def test_rebinding_while_held_moves_the_press():
     pad.set_bindings({"shift_up": "A", "shift_down": "LEFT_SHOULDER"})
     assert pad.writes[-1] == InputState(buttons=BTN_SHIFT_UP)  # re-applied with the new map
     assert pad.held_buttons(pad.state) == {"A"}
+
+
+def test_webcam_tap_presses_shift_briefly_only_while_a_phone_drives():
+    session, pad, clock = make_session()
+    assert session.gesture_shift("right") is None   # no phone: ignored
+    asyncio.run(session.attach(FakeWs(), "10.0.0.1", "a"))
+    session.on_input({"th": 0.3})
+    assert session.gesture_shift("right") == "up"
+    assert pad.state.pressed("shift_up") and pad.state.throttle == 0.3
+    session.on_input({"th": 0.4})                   # the phone's next frame keeps it held
+    assert pad.state.pressed("shift_up")
+    clock.now += 0.15
+    session.on_input({"th": 0.4})                   # ...until the press is over
+    assert not pad.state.pressed("shift_up")
+    assert session.gesture_shift("left") == "down" and pad.state.pressed("shift_down")
+    assert session.gesture_shift("middle") is None

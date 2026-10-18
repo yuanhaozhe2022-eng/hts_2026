@@ -56,6 +56,11 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 #start-screen h1 { margin: 0; font-size: 2rem; letter-spacing: .04em; }
 #start-screen .lead { margin: 0; color: var(--muted); line-height: 1.5; }
 #start-btn { font-size: 1.2rem; padding: 14px 36px; border-radius: 14px; }
+.player-pick { display: flex; gap: 8px; }
+.player-pick button { padding: 10px 18px; border-radius: 12px; }
+.player-pick button[aria-checked="true"] {
+  background: var(--accent); border-color: var(--accent); color: #04121b; font-weight: 600;
+}
 .error { color: var(--bad); margin: 0; max-width: 40em; }
 .fine { color: var(--muted); font-size: .8rem; margin: 0; }
 

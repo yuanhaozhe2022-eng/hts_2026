@@ -10,10 +10,15 @@ export const DEFAULT_SETTINGS = {
   curve: 1,           // response exponent: 1 = linear, >1 = gentler near center
   invert: false,
   lockSteering: false,
+  player: 1,         // which controller this phone drives (1, or 2 for a second player)
   vibration: true,    // haptics: taps on buttons, plus the ones below
   shiftHaptic: "light", // click on the shift buttons: "off" | "light" | "medium" | "heavy"
   hapticShift: true,  // pulse at the shift point
   hapticAbs: true,    // buzz while ABS is working (Android)
+  backTap: "off",     // EXPERIMENTAL shift by tapping the back: "off" | "sides" | "double"
+  backTapSensitivity: 0.5,
+  backTapCal: null,   // learned from the user's taps (see backtap.js)
+  lensTap: "off",     // EXPERIMENTAL cover the rear camera to shift: "off" | "up" | "down"
   gearD: "auto",      // show "D" for automatic gearboxes: "auto" (detect) | "on" | "off"
   revStyle: "leds",   // rev lights: "leds" (F1-style bulbs) | "bar" | "both"
   center: 0,          // calibrated straight-ahead angle, degrees

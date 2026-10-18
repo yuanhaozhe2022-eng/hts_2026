@@ -146,3 +146,16 @@ def test_parse_input_analog_values_are_clamped_and_sanitised():
 def test_sendinput_structure_has_the_size_windows_expects():
     from server.keyboard import INPUT
     assert ctypes.sizeof(INPUT) == (40 if ctypes.sizeof(ctypes.c_void_p) == 8 else 28)
+
+
+def test_shared_keyboard_keeps_a_key_down_while_any_player_holds_it():
+    from server.keyboard import SharedKeyboard
+    sent = []
+    shared = SharedKeyboard(Keyboard(send=lambda name, down: sent.append((name, down))))
+    p1, p2 = shared.for_player(1), shared.for_player(2)
+    p1.apply({"W"})
+    p2.apply({"W", "SPACE"})
+    p1.apply(set())                       # Player 2 still holds W
+    assert ("W", False) not in sent and shared.keyboard.held == {"W", "SPACE"}
+    p2.release_all()
+    assert shared.keyboard.held == set() and p1.held == set()

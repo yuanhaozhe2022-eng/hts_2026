@@ -8,6 +8,7 @@ from aiohttp import web
 
 from server.app import create_app
 from server.beamng_mod import install_mod
+from server.browser import open_cam_window
 from server.certs import ensure_certs, lan_ip, server_ssl_context
 from server.config import DEFAULTS, load_config
 from server.custom import validate_custom
@@ -45,6 +46,9 @@ def print_banner(url: str, http_url: str | None, pad_name: str, dry_run: bool, u
     print("  In-game: set steering deadzone to 0 and linearity/gamma to 1 (the phone handles it).")
     print("  Phone can't connect? Each device that reaches this PC is logged below. If yours")
     print("  never shows up, the Wi-Fi blocks it: use --usb (Android) or the phone's hotspot.")
+    if http_url:
+        port = http_url.rsplit(":", 1)[1]
+        print(f"  Experimental webcam taps: open http://localhost:{port}/cam on this PC.")
     if dry_run:
         print("  DRY RUN: inputs are received but no controller is created.")
     print("  Ctrl+C to stop.")
@@ -82,7 +86,9 @@ async def run(args) -> None:
     https_url = f"https://{ip}:{port}"
     http_port = config["http_port"]
     keyboard = create_keyboard(args.dry_run)
-    app = create_app(config, pad, hub, cert_dir, config_path, https_url, keyboard)
+    loop = asyncio.get_running_loop()
+    pad_factory = lambda bindings: create_pad(bindings, loop, dry_run=args.dry_run)
+    app = create_app(config, pad, hub, cert_dir, config_path, https_url, keyboard, pad_factory)
     ssl_ctx = server_ssl_context(cert_path, key_path)
 
     runner = web.AppRunner(app, access_log=None)
@@ -112,6 +118,12 @@ async def run(args) -> None:
 
     print_banner(https_url, f"http://{ip}:{http_port}" if http_port else None, pad.name,
                  isinstance(pad, DryRunPad), http_port if usb_task else None)
+    if args.cam:
+        if not http_port:
+            logging.error("--cam needs http_port in config.json (e.g. 8080).")
+        elif not open_cam_window(f"http://localhost:{http_port}/cam", ROOT / ".cam-browser"):
+            logging.error("--cam: Chrome or Edge not found. Open http://localhost:%d/cam yourself "
+                          "(and keep it visible: browsers pause hidden pages).", http_port)
     try:
         await asyncio.Event().wait()
     finally:
@@ -127,6 +139,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="don't create a virtual controller")
     parser.add_argument("--usb", action="store_true",
                         help="Android over USB (adb reverse): no Wi-Fi or certificate needed")
+    parser.add_argument("--cam", action="store_true",
+                        help="open the experimental webcam-tap window (keeps running behind the game)")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     parser.add_argument("--install-beamng-mod", action="store_true",
                         help="install the BeamNG mod that adds real gear names (P, D, S...) and exit")

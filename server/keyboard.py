@@ -51,6 +51,42 @@ class NoKeyboard(Keyboard):
         super().__init__(send=lambda name, down: None)
 
 
+class SharedKeyboard:
+    """One real keyboard for several players: a key stays down while any player holds it."""
+
+    def __init__(self, keyboard: Keyboard):
+        self.keyboard = keyboard
+        self._held: dict[int, set[str]] = {}
+
+    def for_player(self, player: int) -> "PlayerKeyboard":
+        return PlayerKeyboard(self, player)
+
+    def _apply(self, player: int, keys) -> None:
+        self._held[player] = set(keys)
+        self.keyboard.apply(set().union(*self._held.values()))
+
+    def release_all(self) -> None:
+        self._held.clear()
+        self.keyboard.release_all()
+
+
+class PlayerKeyboard:
+    """One player's view of a SharedKeyboard; used like a Keyboard."""
+
+    def __init__(self, shared: SharedKeyboard, player: int):
+        self.shared, self.player = shared, player
+
+    @property
+    def held(self) -> set[str]:
+        return set(self.shared._held.get(self.player, ()))
+
+    def apply(self, keys) -> None:
+        self.shared._apply(self.player, keys)
+
+    def release_all(self) -> None:
+        self.apply(())
+
+
 def create_keyboard(dry_run: bool) -> Keyboard:
     if dry_run:
         return NoKeyboard()

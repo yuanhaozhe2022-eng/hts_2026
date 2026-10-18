@@ -134,6 +134,19 @@ export class HoldButton {
     this.el.classList.toggle("latched", on && this.mode === "toggle");
   }
 
+  // A short press that didn't come from a finger on the button (back tap, camera).
+  pulse(ms = 90) {
+    if (this.pointerId !== null) return;
+    clearTimeout(this._timer);
+    this._set(true);
+    this.el.classList.add("active");
+    this._timer = setTimeout(() => {
+      if (this.pointerId !== null) return;
+      this._set(false);
+      this.el.classList.remove("active");
+    }, ms);
+  }
+
   // Lets go of everything, toggles included (settings opened, page hidden, rebinds).
   release() {
     clearTimeout(this._timer);

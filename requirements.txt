@@ -3,4 +3,6 @@ cryptography>=42
 qrcode>=7.4
 # Virtual Xbox controller (Windows). Installing it launches the ViGEmBus driver installer: accept it.
 vgamepad>=0.1.0
+# Vibration motors / force feedback base (Arduino over USB serial).
+pyserial>=3.5
 pytest>=8

@@ -13,6 +13,9 @@ DEFAULTS = {
     # Pad goes neutral if the phone stops sending for this long.
     "watchdog_ms": 300,
     "telemetry_hz": 30,
+    # Phones that can drive at once, each with its own virtual Xbox controller (BeamNG
+    # multiseat). Player 2's controller appears when a phone first joins as Player 2.
+    "players": 2,
     # Xbox button names from vgamepad's XUSB_BUTTON, without the XUSB_GAMEPAD_ prefix
     # (see state.XBOX_BUTTONS). Also changeable from the phone's Settings.
     "buttons": {
@@ -23,6 +26,14 @@ DEFAULTS = {
     "custom_buttons": [],
     "beamng": {"enabled": True, "host": "127.0.0.1", "port": 4444, "gear_port": 4445},
     "assetto": {"enabled": True},
+    # Vibration motors in the phone mount (arduino/pocketwheel_vibration). port "auto" finds
+    # the Arduino by its USB chip; or e.g. "COM5". The rest is also set from the phone.
+    "vibration": {"enabled": False, "port": "auto", "baud": 115200, "rate_hz": 100,
+                  "strength": 0.8, "game": True, "gears": True, "shift": True, "abs": True,
+                  "engine": False},
+    # Motorised phone base (arduino/pocketwheel_ffb), its own Arduino. Also set from the phone.
+    "ffb": {"enabled": False, "port": "auto", "baud": 115200, "rate_hz": 100, "invert": False,
+            "strength": 0.5, "spring": 0.6, "damping": 0.3, "road": 0.3},
 }
 
 

@@ -36,6 +36,7 @@ class Sample:
     lights: dict = field(default_factory=dict)  # supported light -> on/off
     lap: Lap | None = None
     automatic: bool | None = None      # gearbox shifts by itself (None: unknown)
+    ffb: float | None = None           # the game's steering force, about -1..1 (AC / ACC)
     source: str = "none"
     time: float = 0.0  # time.monotonic() when received
 

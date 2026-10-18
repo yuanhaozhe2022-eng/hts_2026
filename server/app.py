@@ -6,12 +6,25 @@ WebSocket messages (JSON):
                {"t":"ping","id":n}
                {"t":"bind","buttons":{"shift_up":"A",...}}   rebind (partial is fine)
                {"t":"custom","buttons":[{"id","label","bind"},...]}  replace custom buttons
+               {"t":"vib","settings":{"strength":0.5,...}}   vibration motors (partial is fine)
+               {"t":"vib","test":true}    buzz the motors once
+               {"t":"ffb","settings":{"strength":0.5,...}}   force feedback (partial is fine)
   PC -> phone  {"t":"tel",...}            telemetry, see telemetry.Sample.to_message
                {"t":"binds","buttons":{...},"options":[...],"custom":[...],"keys":[...]}
                {"t":"pong","id":n}
                {"t":"rumble","l":0..1,"s":0..1}
                {"t":"kicked","by":ip}     another phone has control
-The phone connects to /ws?id=<page id>, adding &auto=1 when it reconnects by itself.
+               {"t":"vib","settings":{...},"status":"..."}   vibration motors state
+               {"t":"ffb","settings":{...},"status":"..."}   force feedback state
+The phone connects to /ws?id=<page id>&p=<player>, adding &auto=1 when it reconnects by
+itself. Each player (config "players", default 2) has its own virtual Xbox controller; button
+bindings and custom controls are shared. Game telemetry, vibration, force feedback and webcam
+taps belong to Player 1 (BeamNG only reports the car the camera follows).
+
+/cam/ws (this PC only): the webcam page (web/cam.html, experimental) reports finger taps on
+the back of the phone, {"t":"tap","side":"left"|"right"}, which press shift down / up.
+  PC -> page   {"t":"cam","phone":true}   whether a phone is driving
+  PC -> phone  {"t":"gshift","dir":"up"|"down"}   a gesture shifted (the phone flashes it)
 """
 
 import asyncio
@@ -24,11 +37,14 @@ from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
-from .config import save_config
+from .config import DEFAULTS, save_config
 from .custom import BIND_OPTIONS, resolve, validate_custom
+from .ffb import ForceFeedback
+from .vibration import Vibration
 from .gamepad import Pad
-from .keyboard import KEYS, Keyboard, NoKeyboard
-from .state import NEUTRAL, XBOX_BUTTONS, parse_input, validate_bindings
+from .keyboard import KEYS, Keyboard, NoKeyboard, SharedKeyboard
+from .state import (BTN_SHIFT_DOWN, BTN_SHIFT_UP, NEUTRAL, XBOX_BUTTONS, parse_input,
+                    validate_bindings)
 from .telemetry.hub import TelemetryHub
 
 log = logging.getLogger(__name__)
@@ -43,6 +59,8 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 # An automatic reconnect only takes over from a phone that has been silent this long.
 BUSY_S = 1.0
+# A gesture (webcam tap) holds its shift button this long.
+GESTURE_PRESS_S = 0.1
 
 
 class Session:
@@ -50,8 +68,9 @@ class Session:
 
     def __init__(self, pad: Pad, hub: TelemetryHub, watchdog_s: float, clock=time.monotonic,
                  on_bindings=None, keyboard: Keyboard | None = None, custom_buttons=(),
-                 on_custom=None):
+                 on_custom=None, player: int = 1):
         self.pad, self.hub = pad, hub
+        self.player = player
         self.keyboard = keyboard or NoKeyboard()
         self.custom = list(custom_buttons)
         self.watchdog_s = watchdog_s
@@ -63,9 +82,31 @@ class Session:
         self.peer = ""        # and its IP address
         self.last_input = 0.0
         self.is_neutral = True
+        self._gesture_until = {}  # button bit -> clock time its gesture press ends
+
+    @property
+    def driving(self) -> bool:
+        return self.ws is not None and not self.is_neutral
+
+    def _gesture_bits(self) -> int:
+        now = self.clock()
+        return sum(bit for bit, until in self._gesture_until.items() if until > now)
+
+    def gesture_shift(self, side: str) -> str | None:
+        """A shift from a gesture (left = down, right = up), held briefly on top of whatever
+        the phone sends. Only while a phone is driving. Returns "up" / "down" or None."""
+        if side not in ("left", "right") or not self.driving:
+            return None
+        bit = BTN_SHIFT_DOWN if side == "left" else BTN_SHIFT_UP
+        self._gesture_until[bit] = self.clock() + GESTURE_PRESS_S
+        state = dataclasses.replace(self.pad.state, buttons=self.pad.state.buttons | bit)
+        self.pad.apply(state)
+        self.hub.on_input(state)
+        return "down" if side == "left" else "up"
 
     def bindings_message(self) -> dict:
-        return {"t": "binds", "buttons": self.pad.bindings, "options": list(XBOX_BUTTONS),
+        return {"t": "binds", "player": self.player,
+                "buttons": self.pad.bindings, "options": list(XBOX_BUTTONS),
                 "custom": self.custom, "keys": list(KEYS),
                 "custom_binds": {kind: list(opts) for kind, opts in BIND_OPTIONS.items()}}
 
@@ -125,6 +166,8 @@ class Session:
 
     def on_input(self, msg: dict) -> None:
         state = parse_input(msg)
+        if self._gesture_until:
+            state = dataclasses.replace(state, buttons=state.buttons | self._gesture_bits())
         out = resolve(self.custom, state.custom, dict(state.analog))
         state = dataclasses.replace(state, extra_buttons=out.pad_buttons, axes=out.axes)
         self.pad.apply(state)
@@ -157,23 +200,56 @@ SESSION_KEY = web.AppKey("session", Session)
 CERT_DIR_KEY = web.AppKey("cert_dir", Path)
 VISITORS_KEY = web.AppKey("visitors", set)
 HTTPS_URL_KEY = web.AppKey("https_url", str)
+VIBRATION_KEY = web.AppKey("vibration", Vibration)
+FFB_KEY = web.AppKey("ffb", ForceFeedback)
+PLAYERS_KEY = web.AppKey("players", dict)        # player number -> Session (as they join)
+JOIN_KEY = web.AppKey("join", object)            # callable(player) -> Session | None
 
 
-async def _watchdog_loop(session: Session) -> None:
+async def _watchdog_loop(sessions: dict) -> None:
     while True:
-        session.check_watchdog()
+        for session in list(sessions.values()):
+            session.check_watchdog()
         await asyncio.sleep(0.05)
 
 
-async def _telemetry_loop(session: Session, hub: TelemetryHub, hz: float) -> None:
+async def _vibration_loop(session: Session, hub: TelemetryHub, vibration: Vibration) -> None:
+    status = None
     while True:
-        if session.ws is not None:
-            await session.send(hub.latest(time.monotonic()).to_message())
+        now = time.monotonic()
+        vibration.tick(now, hub.latest(now), session.driving)
+        if vibration.status != status:  # tell the phone when the Arduino comes or goes
+            status = vibration.status
+            await session.send(vibration.message())
+        await asyncio.sleep(1 / vibration.rate_hz)
+
+
+async def _ffb_loop(session: Session, hub: TelemetryHub, ffb: ForceFeedback) -> None:
+    status = None
+    while True:
+        now = time.monotonic()
+        ffb.tick(now, hub.latest(now), session.pad.state.steer, session.driving)
+        if ffb.status != status:  # tell the phone when the Arduino comes or goes
+            status = ffb.status
+            await session.send(ffb.message())
+        await asyncio.sleep(1 / ffb.rate_hz)
+
+
+async def _telemetry_loop(sessions: dict, hz: float) -> None:
+    while True:
+        for session in list(sessions.values()):
+            if session.ws is not None:
+                await session.send(session.hub.latest(time.monotonic()).to_message())
         await asyncio.sleep(1 / hz)
 
 
 async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
-    session: Session = request.app[SESSION_KEY]
+    try:
+        player = int(request.query.get("p", "1"))
+    except ValueError:
+        player = 1
+    session: Session = request.app[JOIN_KEY](player) or request.app[SESSION_KEY]
+    sessions = request.app[PLAYERS_KEY]
     ws = web.WebSocketResponse(heartbeat=5.0)
     await ws.prepare(request)
     peer = request.remote
@@ -181,8 +257,18 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
     if not await session.attach(ws, peer, request.query.get("id", ""), auto):
         log.info("Kept control with %s: %s reconnected while it was driving", session.peer, peer)
         return ws
-    log.info("Phone connected: %s", peer)
+    log.info("Phone connected as Player %d: %s", session.player, peer)
     await session.send(session.bindings_message())
+    vibration = request.app[VIBRATION_KEY]
+    ffb = request.app[FFB_KEY]
+    hardware = session.player == 1  # the mount's motors follow Player 1
+    if hardware:
+        await session.send(vibration.message())
+        await session.send(ffb.message())
+
+    async def everyone_rebound():
+        for other in list(sessions.values()):
+            await other.send(other.bindings_message())
     try:
         async for msg in ws:
             if msg.type != WSMsgType.TEXT:
@@ -198,14 +284,59 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
                 await ws.send_json({"t": "pong", "id": data.get("id")})
             elif kind == "custom" and ws is session.ws:
                 session.set_custom(data.get("buttons"))
-                await session.send(session.bindings_message())
+                await everyone_rebound()
+            elif kind == "ffb" and ws is session.ws and hardware:
+                ffb.set_settings(data.get("settings"))
+                await session.send(ffb.message())
+            elif kind == "vib" and ws is session.ws and hardware:
+                if data.get("test"):
+                    vibration.test(time.monotonic())
+                if "settings" in data:
+                    vibration.set_settings(data.get("settings"))
+                await session.send(vibration.message())
             elif kind == "bind" and ws is session.ws:
                 session.set_bindings(data.get("buttons"))
-                await session.send(session.bindings_message())  # confirm, or undo a rejected pick
+                await everyone_rebound()  # confirm, or undo a rejected pick
     finally:
         session.detach(ws)
-        log.info("Phone disconnected: %s", peer)
+        log.info("Player %d phone disconnected: %s", session.player, peer)
     return ws
+
+
+async def _cam_ws_handler(request: web.Request) -> web.StreamResponse:
+    """The webcam tap page. Only from this PC: anyone on the Wi-Fi could shift otherwise."""
+    if request.remote not in ("127.0.0.1", "::1"):
+        raise web.HTTPForbidden(text="The webcam page only works on the PC running PocketWheel.")
+    session: Session = request.app[SESSION_KEY]
+    ws = web.WebSocketResponse(heartbeat=5.0)
+    await ws.prepare(request)
+    log.info("Webcam tap page connected")
+    await ws.send_json({"t": "cam", "phone": session.driving})
+    async for msg in ws:
+        if msg.type != WSMsgType.TEXT:
+            continue
+        try:
+            data = json.loads(msg.data)
+        except ValueError:
+            continue
+        if data.get("t") == "tap":
+            direction = session.gesture_shift(data.get("side"))
+            if direction:
+                action = "shift_up" if direction == "up" else "shift_down"
+                button = session.pad.bindings.get(action, "?")
+                log.info("Webcam tap: shift %s (Xbox %s)", direction, button)
+                await session.send({"t": "gshift", "dir": direction})
+                await ws.send_json({"t": "tapped", "dir": direction, "button": button})
+            else:
+                log.info("Webcam tap ignored: no phone is driving")
+                await ws.send_json({"t": "tapped", "dir": None})
+            await ws.send_json({"t": "cam", "phone": session.driving})
+    log.info("Webcam tap page disconnected")
+    return ws
+
+
+async def _cam(request: web.Request) -> web.FileResponse:
+    return web.FileResponse(WEB_DIR / "cam.html")
 
 
 async def _index(request: web.Request) -> web.FileResponse:
@@ -265,7 +396,9 @@ async def _https_unless_local(request, handler):
 
 def create_app(config: dict, pad: Pad, hub: TelemetryHub, cert_dir: Path,
                config_path: Path | None = None, https_url: str | None = None,
-               keyboard: Keyboard | None = None) -> web.Application:
+               keyboard: Keyboard | None = None, pad_factory=None) -> web.Application:
+    """pad is Player 1's controller; pad_factory(bindings) makes one for each further player
+    (without it there's only Player 1)."""
     app = web.Application(middlewares=[_log_visitors, _https_unless_local, _no_cache])
     app[VISITORS_KEY] = set()
     app[HTTPS_URL_KEY] = https_url
@@ -277,31 +410,86 @@ def create_app(config: dict, pad: Pad, hub: TelemetryHub, cert_dir: Path,
                 save_config(config_path, config)
         return save
 
-    session = Session(pad, hub, config["watchdog_ms"] / 1000, on_bindings=persist("buttons"),
-                      keyboard=keyboard, custom_buttons=config.get("custom_buttons", []),
-                      on_custom=persist("custom_buttons"))
+    shared_keys = SharedKeyboard(keyboard or NoKeyboard())
+    sessions: dict[int, Session] = {}
+    max_players = config.get("players", 1) if pad_factory else 1
+
+    # Bindings and custom controls are shared: a change from any phone applies to every pad.
+    def bindings_changed(bindings):
+        persist("buttons")(bindings)
+        for other in sessions.values():
+            if other.pad.bindings != bindings:
+                other.pad.set_bindings(bindings)
+
+    def custom_changed(custom):
+        persist("custom_buttons")(custom)
+        for other in sessions.values():
+            other.custom = list(custom)
+
+    def make_session(player: int, player_pad: Pad, player_hub: TelemetryHub) -> Session:
+        sessions[player] = Session(
+            player_pad, player_hub, config["watchdog_ms"] / 1000, on_bindings=bindings_changed,
+            keyboard=shared_keys.for_player(player),
+            custom_buttons=config.get("custom_buttons", []), on_custom=custom_changed,
+            player=player)
+        return sessions[player]
+
+    def join(player: int) -> Session | None:
+        """The session for a player number, creating that player's controller the first time."""
+        if player in sessions:
+            return sessions[player]
+        if not 1 <= player <= max_players:
+            return None
+        new = make_session(player, pad_factory(dict(sessions[1].pad.bindings)),
+                           TelemetryHub([]))  # the game only reports Player 1's car: estimate
+        new.pad.on_rumble = lambda large, small: asyncio.ensure_future(
+            new.send({"t": "rumble", "l": round(large, 2), "s": round(small, 2)}))
+        log.info("Player %d joined: another virtual controller (%s)", player, new.pad.name)
+        return new
+
+    session = make_session(1, pad, hub)
     app[SESSION_KEY] = session
+    app[PLAYERS_KEY] = sessions
+    app[JOIN_KEY] = join
     app[CERT_DIR_KEY] = cert_dir
+    vib_config = config.get("vibration", DEFAULTS["vibration"])
+    vibration = Vibration(vib_config,
+                          on_settings=lambda s: persist("vibration")({**vib_config, **s}))
+    app[VIBRATION_KEY] = vibration
+    ffb_config = config.get("ffb", DEFAULTS["ffb"])
+    ffb = ForceFeedback(ffb_config, on_settings=lambda s: persist("ffb")({**ffb_config, **s}))
+    app[FFB_KEY] = ffb
 
     # Called on the event loop (the pad hops threads before calling it).
-    pad.on_rumble = lambda large, small: asyncio.ensure_future(
-        session.send({"t": "rumble", "l": round(large, 2), "s": round(small, 2)}))
+    def on_rumble(large, small):
+        vibration.rumble = (large, small)
+        ffb.rumble = max(large, small)
+        asyncio.ensure_future(
+            session.send({"t": "rumble", "l": round(large, 2), "s": round(small, 2)}))
+    pad.on_rumble = on_rumble
 
     app.router.add_get("/", _index)
     app.router.add_get("/ws", _ws_handler)
+    app.router.add_get("/cam", _cam)
+    app.router.add_get("/cam/ws", _cam_ws_handler)
     app.router.add_get("/ca.crt", _ca_cert)
     app.router.add_static("/", WEB_DIR)
 
     async def background(app):
         await hub.start()
-        tasks = [asyncio.create_task(_watchdog_loop(session)),
-                 asyncio.create_task(_telemetry_loop(session, hub, config["telemetry_hz"]))]
+        tasks = [asyncio.create_task(_watchdog_loop(sessions)),
+                 asyncio.create_task(_telemetry_loop(sessions, config["telemetry_hz"])),
+                 asyncio.create_task(_vibration_loop(session, hub, vibration)),
+                 asyncio.create_task(_ffb_loop(session, hub, ffb))]
         yield
         for task in tasks:
             task.cancel()
+        vibration.close()
+        ffb.close()
         hub.stop()
-        session.keyboard.release_all()
-        pad.close()
+        shared_keys.release_all()
+        for player_session in sessions.values():
+            player_session.pad.close()
 
     app.cleanup_ctx.append(background)
     return app

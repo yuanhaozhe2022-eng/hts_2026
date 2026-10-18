@@ -7,3 +7,5 @@ venv/
 certs/
 config.json
 platform-tools/
+.cam-browser/
+PRESENTATION_NOTES.txt

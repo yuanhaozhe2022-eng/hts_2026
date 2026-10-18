@@ -22,7 +22,7 @@ f32, i32 = ctypes.c_float, ctypes.c_int32
 
 
 class Physics(ctypes.Structure):
-    """Leading fields of SPageFilePhysics, up to turboBoost (same layout in AC and ACC)."""
+    """Leading fields of SPageFilePhysics, up to finalFF (same layout in AC and ACC)."""
 
     _pack_ = 4
     _fields_ = [
@@ -60,6 +60,12 @@ class Physics(ctypes.Structure):
         ("autoShifterOn", i32),
         ("rideHeight", f32 * 2),
         ("turboBoost", f32),
+        ("ballast", f32),
+        ("airDensity", f32),
+        ("airTemp", f32),
+        ("roadTemp", f32),
+        ("localAngularVel", f32 * 3),
+        ("finalFF", f32),              # the game's own force feedback on the steering
     ]
 
 
@@ -211,6 +217,7 @@ class AssettoSource:
             lights={"pit": bool(physics.pitLimiterOn)},
             lap=_lap(graphics),
             automatic=bool(physics.autoShifterOn),
+            ffb=physics.finalFF,
             source=self.name,
             time=now,
         )
