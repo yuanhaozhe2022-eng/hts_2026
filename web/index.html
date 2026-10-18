@@ -219,8 +219,14 @@
       <p class="hint" id="ffb-status">Not connected to the PC.</p>
       <label class="toggle"><input type="checkbox" data-ffb="enabled" disabled> Force feedback on</label>
       <label class="slider">Strength <output data-ffb-out="strength"></output>
-        <input type="range" data-ffb="strength" min="0" max="1" step="0.05" disabled>
+        <input type="range" data-ffb="strength" min="0" max="2" step="0.05" disabled>
       </label>
+      <p class="hint">Over 100% boosts it: the motor works harder, and anything past full force
+        is capped at full.</p>
+      <label class="slider">Minimum force <output data-ffb-out="minimum"></output>
+        <input type="range" data-ffb="minimum" min="0" max="0.6" step="0.05" disabled>
+      </label>
+      <p class="hint">Makes gentle pulls firmer: every push is at least this strong.</p>
       <label class="slider">Centering spring <output data-ffb-out="spring"></output>
         <input type="range" data-ffb="spring" min="0" max="1" step="0.05" disabled>
       </label>

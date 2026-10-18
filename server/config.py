@@ -33,7 +33,8 @@ DEFAULTS = {
                   "engine": False},
     # Motorised phone base (arduino/pocketwheel_ffb), its own Arduino. Also set from the phone.
     "ffb": {"enabled": False, "port": "auto", "baud": 115200, "rate_hz": 100, "invert": False,
-            "strength": 0.5, "spring": 0.6, "damping": 0.3, "road": 0.3, "game": 1.0},
+            "strength": 0.5, "spring": 0.6, "damping": 0.3, "road": 0.3, "game": 1.0,
+            "minimum": 0.0},
 }
 
 

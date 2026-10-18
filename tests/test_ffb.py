@@ -46,10 +46,44 @@ def test_invert_strength_damping_and_road_feel():
     assert min(shakes) < 0 < max(shakes)
 
 
+def test_boost_over_100_percent_and_minimum_force():
+    gentle = force(steer=0.05, sample=Sample(speed_kmh=60))  # a small pull, about -0.15
+    assert -0.3 < gentle < 0
+    assert force({**SETTINGS, "strength": 2.0}, steer=0.05, sample=Sample(speed_kmh=60)) == \
+        pytest.approx(2 * gentle)
+    assert force({**SETTINGS, "strength": 2.0}, steer=0.9, sample=Sample(speed_kmh=60)) == -1.0
+    lifted = force({**SETTINGS, "minimum": 0.4}, steer=0.05, sample=Sample(speed_kmh=60))
+    assert lifted == pytest.approx(-(0.4 + 0.6 * abs(gentle)))
+    assert force({**SETTINGS, "minimum": 0.4}, steer=0.0) == 0  # nothing stays nothing
+
+
+def test_damping_is_steady_when_steering_updates_arrive_unevenly():
+    # The phone's angle changes ~60 times a second while the loop ticks at 100 Hz, so some
+    # ticks see no change. Damping must not flick between 0 and a spike.
+    damped = {**SETTINGS, "spring": 0.0, "damping": 1.0}
+    model, now, steer, out = FfbModel(), 10.0, 0.0, []
+    for tick in range(100):
+        now += 0.01
+        if tick % 5 in (0, 2, 3):          # 3 updates per 5 ticks = 60 Hz, uneven
+            steer += 0.01                  # turning right steadily (0.6 full-lock/s)
+        out.append(model.force(damped, Sample(), steer, 0.0, now, 0.01))
+    late = out[40:]
+    assert all(f < 0 for f in late)        # always resisting, never flipping sign
+    assert max(late) - min(late) < 0.03    # and steady
+
+
+def test_minimum_force_never_lifts_damping_jitter():
+    model = FfbModel()
+    s = {**SETTINGS, "spring": 0.0, "damping": 1.0, "minimum": 0.4}
+    model.force(s, Sample(), 0.0, 0.0, 10.0, 0.01)
+    f = model.force(s, Sample(), 0.002, 0.0, 10.016, 0.016)  # a tiny wobble
+    assert abs(f) < 0.1
+
+
 def test_settings_from_the_phone_are_checked():
     out = validate_settings({"strength": 0.8, "invert": True, "unknown": 1}, SETTINGS)
     assert out["strength"] == 0.8 and out["invert"] is True and "unknown" not in out
-    for bad in ({"strength": 2}, {"enabled": 1}, {"damping": "x"}, []):
+    for bad in ({"strength": 2.5}, {"minimum": 0.9}, {"enabled": 1}, {"damping": "x"}, []):
         with pytest.raises(ValueError):
             validate_settings(bad, SETTINGS)
 

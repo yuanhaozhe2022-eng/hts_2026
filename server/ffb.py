@@ -26,15 +26,16 @@ log = logging.getLogger(__name__)
 SETTINGS = {
     "enabled": bool,
     "invert": bool,
-    "strength": (0.0, 1.0),  # overall
+    "strength": (0.0, 2.0),  # overall gain; over 1 boosts (anything past full is capped)
     "spring": (0.0, 1.0),    # estimated centering (games without their own force feedback)
     "damping": (0.0, 1.0),   # resists fast wheel movement; raise it if the wheel oscillates
     "road": (0.0, 1.0),      # shake from game rumble and ABS
     "game": (0.0, 1.0),      # how much of the game's own force (AC self-aligning) vs the spring
+    "minimum": (0.0, 0.6),   # lifts small forces: any push is at least this strong
 }
 # For settings missing from an older config.json.
 DEFAULTS = {"enabled": False, "invert": False, "strength": 0.5, "spring": 0.6, "damping": 0.3,
-            "road": 0.3, "game": 1.0}
+            "road": 0.3, "game": 1.0, "minimum": 0.0}
 
 GAME_FFB_HOLD_S = 5.0  # keep using the game's force this long after it was last non-zero
 SHAKE_HZ = 20.0
@@ -58,15 +59,13 @@ class FfbModel:
 
     def __init__(self):
         self._prev_steer = None
-        self._velocity = 0.0  # wheel speed, full-lock units per second (smoothed)
+        self._changed_at = 0.0  # when the phone's steering value last changed
+        self._velocity = 0.0    # wheel speed, full-lock units per second (smoothed)
         self._game_seen = -math.inf
         self.using_game = False
 
     def force(self, settings: dict, sample, steer: float, rumble: float, now: float, dt: float) -> float:
-        if self._prev_steer is not None and dt > 0:
-            raw = (steer - self._prev_steer) / dt
-            self._velocity += (raw - self._velocity) * min(1.0, dt / 0.03)
-        self._prev_steer = steer
+        self._track_velocity(steer, now)
 
         game = sample.ffb if sample is not None else None
         if game is not None and abs(game) > 0.002:
@@ -88,9 +87,31 @@ class FfbModel:
         if shake > 0.01:
             base += shake if int(now * SHAKE_HZ * 2) % 2 else -shake
 
+        push = _clamp(settings["strength"] * base)
+        # Minimum force lifts the real push (spring / game / road) only, never damping's
+        # small corrections, which it would turn into twitching.
+        minimum = settings.get("minimum", 0.0)
+        if minimum > 0 and abs(push) > 0.02:
+            push = math.copysign(minimum + (1 - minimum) * abs(push), push)
         damping = -settings["damping"] * _clamp(0.12 * self._velocity, -0.6, 0.6)
-        total = settings["strength"] * (base + damping)
+        total = push + settings["strength"] * damping
         return _clamp(-total if settings["invert"] else total)
+
+    def _track_velocity(self, steer: float, now: float) -> None:
+        """How fast the wheel turns, from the phone's own updates (~60 a second, unevenly
+        spaced over Wi-Fi) rather than this loop's 100 Hz ticks: measuring between ticks
+        reads 0, then a spike, which damping would turn into twitching."""
+        if self._prev_steer is None:
+            self._prev_steer, self._changed_at = steer, now
+            return
+        if steer != self._prev_steer:
+            gap = now - self._changed_at
+            if 0 < gap < 0.25:
+                raw = (steer - self._prev_steer) / gap
+                self._velocity += (raw - self._velocity) * 0.3
+            self._prev_steer, self._changed_at = steer, now
+        elif now - self._changed_at > 0.08:  # no news for a while: the wheel has stopped
+            self._velocity *= 0.85
 
     def reset(self) -> None:
         self._prev_steer = None
