@@ -192,6 +192,11 @@ window is set up to keep watching behind the game.
   hands in view. Use the *Sensitivity* slider if it misses taps or fires on its own, and *Swap
   left / right* if your webcam mirrors the picture.
 
+## Hardware (CAD)
+
+The phone mount / force feedback base is designed in Onshape:
+[PocketWheel base on Onshape](https://cad.onshape.com/documents/2c0fc9a7bf0dc309de0651b9/w/0dcce73481709170cb8a7b14/e/2753daebd4bb52051383f48f)
+
 ## Vibration motors in the phone mount (optional)
 
 Two small vibration motors in the phone mount (left and right, like an Xbox controller's rumble)
