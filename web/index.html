@@ -105,8 +105,14 @@
     <div id="toast" hidden></div>
 
     <div id="kicked" class="overlay" hidden>
-      <p>Another device<span id="kicked-by"></span> has control.</p>
-      <button id="reclaim-btn" class="primary">Take control back</button>
+      <div class="kicked-box">
+        <p id="kicked-text">Another device has control.</p>
+        <p class="hint" id="kicked-hint"></p>
+        <div class="row buttons">
+          <button id="reclaim-btn" class="primary">Take control back</button>
+          <button id="other-player-btn">Drive as Player 2 instead</button>
+        </div>
+      </div>
     </div>
 
     <div id="edit-bar" hidden>
@@ -218,8 +224,13 @@
       <label class="slider">Centering spring <output data-ffb-out="spring"></output>
         <input type="range" data-ffb="spring" min="0" max="1" step="0.05" disabled>
       </label>
-      <p class="hint">Used when the game has no force feedback of its own (BeamNG). Assetto Corsa /
-        ACC send their own.</p>
+      <p class="hint">Pulls the wheel to straight. Used in BeamNG, and in Assetto Corsa / ACC as
+        much as Game force is turned down.</p>
+      <label class="slider">Game force (Assetto Corsa) <output data-ffb-out="game"></output>
+        <input type="range" data-ffb="game" min="0" max="1" step="0.05" disabled>
+      </label>
+      <p class="hint">The game's own self-aligning force, which follows the car's path.
+        0% turns it off and uses the centering spring instead.</p>
       <label class="slider">Damping <output data-ffb-out="damping"></output>
         <input type="range" data-ffb="damping" min="0" max="1" step="0.05" disabled>
       </label>

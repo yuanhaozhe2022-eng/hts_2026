@@ -82,7 +82,7 @@ def test_new_phone_takes_over_and_old_one_is_told():
     asyncio.run(session.attach(first, "10.0.0.1", "a"))
     session.on_input({"th": 1.0})
     asyncio.run(session.attach(second, "10.0.0.2", "b"))
-    assert first.closed and first.sent == [{"t": "kicked", "by": "10.0.0.2"}]
+    assert first.closed and first.sent == [{"t": "kicked", "by": "10.0.0.2", "device": "", "player": 1, "same": False}]
     assert session.ws is second
     assert pad.state == NEUTRAL  # takeover starts from released controls
     session.detach(first)        # the old socket's cleanup must not drop the new phone
@@ -99,7 +99,7 @@ def test_automatic_reconnects_dont_steal_control_from_a_driving_phone():
     session.on_input({"th": 1.0})
     # Phone B reconnects by itself while A drives: refused, A keeps control.
     assert not asyncio.run(session.attach(b, "10.0.0.2", "b", auto=True))
-    assert b.closed and b.sent == [{"t": "kicked", "by": "10.0.0.1"}]
+    assert b.closed and b.sent == [{"t": "kicked", "by": "10.0.0.1", "device": "", "player": 1, "same": False}]
     assert session.ws is a and not a.closed and pad.state != NEUTRAL
     # A's own page coming back after a dropout always gets in.
     a2 = FakeWs()
@@ -114,7 +114,7 @@ def test_automatic_reconnects_dont_steal_control_from_a_driving_phone():
     session.on_input({"th": 0.5})
     a3 = FakeWs()
     assert asyncio.run(session.attach(a3, "10.0.0.1", "a"))
-    assert session.ws is a3 and b2.sent == [{"t": "kicked", "by": "10.0.0.1"}]
+    assert session.ws is a3 and b2.sent == [{"t": "kicked", "by": "10.0.0.1", "device": "", "player": 1, "same": False}]
 
 
 def test_rebind_from_phone_applies_and_persists():
@@ -169,3 +169,23 @@ def test_webcam_tap_presses_shift_briefly_only_while_a_phone_drives():
     assert not pad.state.pressed("shift_up")
     assert session.gesture_shift("left") == "down" and pad.state.pressed("shift_down")
     assert session.gesture_shift("middle") is None
+
+
+def test_kicked_message_says_who_and_spots_another_tab_on_the_same_phone():
+    session, _, _ = make_session()
+    tab1, tab2, other = FakeWs(), FakeWs(), FakeWs()
+    asyncio.run(session.attach(tab1, "10.0.0.5", "a", device="Android, Chrome"))
+    asyncio.run(session.attach(tab2, "10.0.0.5", "b", device="Android, Chrome"))
+    assert tab1.sent == [{"t": "kicked", "by": "10.0.0.5", "device": "Android, Chrome",
+                          "player": 1, "same": True}]
+    asyncio.run(session.attach(other, "10.0.0.9", "c", device="iPhone/iPad, Safari"))
+    assert tab2.sent[0]["same"] is False and tab2.sent[0]["device"] == "iPhone/iPad, Safari"
+
+
+def test_the_same_page_reconnecting_never_kicks_itself():
+    session, _, _ = make_session()
+    first, second = FakeWs(), FakeWs()
+    asyncio.run(session.attach(first, "10.0.0.5", "page1", device="Android, Chrome"))
+    asyncio.run(session.attach(second, "10.0.0.5", "page1", device="Android, Chrome"))
+    assert first.closed and first.sent == []      # quietly replaced, no "kicked" overlay
+    assert session.ws is second

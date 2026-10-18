@@ -24,6 +24,14 @@ def test_game_force_feedback_wins_when_the_game_provides_it():
     assert force(sample=Sample(speed_kmh=100, ffb=3.0)) == 1.0  # clamped
 
 
+def test_game_force_can_be_turned_down_to_just_the_centering_spring():
+    sample = Sample(speed_kmh=100, ffb=0.4)    # game pulls right, wheel turned right
+    spring_only = force(sample=Sample(speed_kmh=100), steer=0.3)
+    assert force({**SETTINGS, "game": 0.0}, sample=sample, steer=0.3) == pytest.approx(spring_only)
+    half = force({**SETTINGS, "game": 0.5}, sample=sample, steer=0.3)
+    assert half == pytest.approx(0.5 * 0.4 + 0.5 * spring_only)
+
+
 def test_invert_strength_damping_and_road_feel():
     assert force({**SETTINGS, "invert": True}, steer=0.5) == pytest.approx(-force(steer=0.5))
     assert force({**SETTINGS, "strength": 0.5}, steer=0.5) == pytest.approx(force(steer=0.5) / 2)

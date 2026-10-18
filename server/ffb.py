@@ -30,11 +30,18 @@ SETTINGS = {
     "spring": (0.0, 1.0),    # estimated centering (games without their own force feedback)
     "damping": (0.0, 1.0),   # resists fast wheel movement; raise it if the wheel oscillates
     "road": (0.0, 1.0),      # shake from game rumble and ABS
+    "game": (0.0, 1.0),      # how much of the game's own force (AC self-aligning) vs the spring
 }
+# For settings missing from an older config.json.
+DEFAULTS = {"enabled": False, "invert": False, "strength": 0.5, "spring": 0.6, "damping": 0.3,
+            "road": 0.3, "game": 1.0}
 
 GAME_FFB_HOLD_S = 5.0  # keep using the game's force this long after it was last non-zero
 SHAKE_HZ = 20.0
 FULL_SPRING_KMH = 60.0
+# Centering builds up fast and levels off, like a real car's self-aligning torque: with
+# tanh(3 x steer), 10% of full lock already gives ~30% of the spring, 30% gives ~70%.
+SPRING_SHAPE = 3.0
 
 
 def validate_settings(changes, current: dict) -> dict:
@@ -65,12 +72,16 @@ class FfbModel:
         if game is not None and abs(game) > 0.002:
             self._game_seen = now
         self.using_game = game is not None and now - self._game_seen < GAME_FFB_HOLD_S
+        speed = (sample.speed_kmh if sample is not None else None) or 0.0
+        stiffness = 0.15 + 0.85 * min(1.0, speed / FULL_SPRING_KMH)  # light when parked
+        spring = -settings["spring"] * stiffness * math.tanh(SPRING_SHAPE * steer)
         if self.using_game:
-            base = _clamp(game)
+            # The game's force follows the car's path (self-aligning); "game" < 1 swaps some
+            # of it for the plain spring, which only pulls towards straight.
+            mix = settings.get("game", 1.0)
+            base = mix * _clamp(game) + (1 - mix) * spring
         else:
-            speed = (sample.speed_kmh if sample is not None else None) or 0.0
-            stiffness = 0.15 + 0.85 * min(1.0, speed / FULL_SPRING_KMH)  # light when parked
-            base = -settings["spring"] * stiffness * steer
+            base = spring
 
         abs_on = bool(sample is not None and sample.lights.get("abs"))
         shake = max(rumble, 0.5 if abs_on else 0.0) * settings["road"] * 0.4
@@ -94,7 +105,7 @@ class ForceFeedback:
     """Settings, the model and the serial link, updated by the app's loop."""
 
     def __init__(self, config: dict, link: arduino.SerialLink | None = None, on_settings=None):
-        self.settings = {key: config[key] for key in SETTINGS}
+        self.settings = {key: config.get(key, DEFAULTS[key]) for key in SETTINGS}
         self.rate_hz = config.get("rate_hz", 100)
         self.link = link or arduino.SerialLink("FFB", "Force feedback",
                                                config.get("port", "auto"), config.get("baud", 115200))
@@ -120,7 +131,12 @@ class ForceFeedback:
             return "off"
         if not self.link.is_open:
             return "No Arduino found"
-        source = "game force" if self.model.using_game else "estimated"
+        if not self.model.using_game:
+            source = "estimated"
+        elif self.settings["game"] <= 0:
+            source = "centering spring (game force off)"
+        else:
+            source = f"game force {round(self.settings['game'] * 100)}%"
         board = self.link.board if self.link.matches else "Arduino"
         return f"{board} on {self.link.port} · {source}"
 

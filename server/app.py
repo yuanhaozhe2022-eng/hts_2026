@@ -13,7 +13,8 @@ WebSocket messages (JSON):
                {"t":"binds","buttons":{...},"options":[...],"custom":[...],"keys":[...]}
                {"t":"pong","id":n}
                {"t":"rumble","l":0..1,"s":0..1}
-               {"t":"kicked","by":ip}     another phone has control
+               {"t":"kicked","by":ip,"device":"Android, Chrome","player":1,"same":false}
+                                          another device has this player ("same": same IP)
                {"t":"vib","settings":{...},"status":"..."}   vibration motors state
                {"t":"ffb","settings":{...},"status":"..."}   force feedback state
 The phone connects to /ws?id=<page id>&p=<player>, adding &auto=1 when it reconnects by
@@ -80,6 +81,7 @@ class Session:
         self.ws: web.WebSocketResponse | None = None
         self.client_id = ""   # page id of the phone in control
         self.peer = ""        # and its IP address
+        self.device = ""      # and what it is ("Android, Chrome")
         self.last_input = 0.0
         self.is_neutral = True
         self._gesture_until = {}  # button bit -> clock time its gesture press ends
@@ -137,7 +139,14 @@ class Session:
             self.on_bindings(bindings)
         return True
 
-    async def attach(self, ws, peer: str = "", client_id: str = "", auto: bool = False) -> bool:
+    def _kicked(self, by_peer: str, by_device: str, to_peer: str) -> dict:
+        # Same IP = same device, except over USB (adb) where every phone is localhost.
+        same = by_peer == to_peer and by_peer not in ("127.0.0.1", "::1")
+        return {"t": "kicked", "by": by_peer, "device": by_device, "player": self.player,
+                "same": same}
+
+    async def attach(self, ws, peer: str = "", client_id: str = "", auto: bool = False,
+                     device: str = "") -> bool:
         """Give control to a new connection; the previous phone is told and dropped.
 
         Tapping Start / Take control back always takes over. An automatic reconnect doesn't
@@ -149,12 +158,19 @@ class Session:
         old_alive = old is not None and not old.closed
         busy = old_alive and self.clock() - self.last_input < BUSY_S
         if auto and busy and client_id != self.client_id:
-            await ws.send_json({"t": "kicked", "by": self.peer})
+            await ws.send_json(self._kicked(self.peer, self.device, peer))
             await ws.close()
             return False
-        self.ws, self.peer, self.client_id = ws, peer, client_id
-        if old_alive:
-            await old.send_json({"t": "kicked", "by": peer})
+        old_peer, old_device, old_client = self.peer, self.device, self.client_id
+        self.ws, self.peer, self.client_id, self.device = ws, peer, client_id, device
+        if old_alive and client_id and client_id == old_client:
+            # The same page reconnecting: its old connection just goes, it isn't "kicked".
+            await old.close()
+        elif old_alive:
+            message = self._kicked(peer, device, old_peer)
+            log.info("Player %d: %s (%s) took over from %s (%s)%s", self.player, peer, device,
+                     old_peer, old_device, " - same device, another tab?" if message["same"] else "")
+            await old.send_json(message)
             await old.close()
         self.go_neutral()
         return True
@@ -254,7 +270,8 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
     await ws.prepare(request)
     peer = request.remote
     auto = request.query.get("auto") == "1"
-    if not await session.attach(ws, peer, request.query.get("id", ""), auto):
+    device = describe_device(request.headers.get("User-Agent", ""))
+    if not await session.attach(ws, peer, request.query.get("id", ""), auto, device):
         log.info("Kept control with %s: %s reconnected while it was driving", session.peer, peer)
         return ws
     log.info("Phone connected as Player %d: %s", session.player, peer)

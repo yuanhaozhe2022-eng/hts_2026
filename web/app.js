@@ -61,6 +61,11 @@ const clientId = Math.random().toString(36).slice(2, 10);
 // auto: reconnecting by itself, which never takes control from another phone that's driving.
 function connect(auto = false) {
   kicked = false;
+  if (ws) {  // one connection per page: a second one would take control from the first
+    const old = ws;
+    ws = null;  // its close and messages are ignored from now on
+    old.close();
+  }
   dash.connection("connecting");
   // Plain ws:// when served from http://localhost (Android over USB).
   const scheme = location.protocol === "https:" ? "wss" : "ws";
@@ -73,6 +78,7 @@ function connect(auto = false) {
     dash.connection("open", latency);
   };
   socket.onmessage = (event) => {
+    if (ws !== socket) return;  // an old connection of this page: not news
     let msg;
     try {
       msg = JSON.parse(event.data);
@@ -105,8 +111,7 @@ function connect(auto = false) {
     } else if (msg.t === "kicked") {
       kicked = true;
       releaseAll();
-      $("#kicked-by").textContent = msg.by ? ` (${msg.by})` : "";
-      $("#kicked").hidden = false;
+      showKicked(msg);
     }
   };
   socket.onclose = () => {
@@ -276,7 +281,19 @@ function showStartError(text) {
   el.hidden = false;
 }
 
+let starting = false;
+
 async function start() {
+  if (starting || document.body.classList.contains("driving")) return;  // double tap
+  starting = true;
+  try {
+    await startDriving();
+  } finally {
+    starting = false;
+  }
+}
+
+async function startDriving() {
   if (!window.isSecureContext) {
     showStartError("This page must be opened over https:// (use the address the PC prints), " +
       "otherwise the browser blocks the motion sensors.");
@@ -370,16 +387,17 @@ function showPlayer(player) {
   }
 }
 
-$("#player-select").addEventListener("change", (e) => {
-  settings.player = Number(e.target.value);
+function switchPlayer(player) {
+  settings.player = player;
   saveSettings(settings);
-  markPlayer(settings.player);
+  markPlayer(player);
   releaseAll();
   const old = ws;
   ws = null;      // so the old socket's close doesn't schedule its own reconnect
   old?.close();
   connect();      // a deliberate switch: takes that player's slot
-});
+}
+$("#player-select").addEventListener("change", (e) => switchPlayer(Number(e.target.value)));
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
@@ -392,6 +410,28 @@ document.addEventListener("visibilitychange", () => {
     updateLensTap();
   }
 });
+
+// Who took this phone's player, and what to do about it.
+function showKicked(msg) {
+  const player = msg.player ?? settings.player;
+  const who = [msg.device, msg.by].filter(Boolean).join(" · ");
+  $("#kicked-text").textContent = msg.same
+    ? `Another tab or app on this same device took Player ${player}.`
+    : `Another device${who ? ` (${who})` : ""} took Player ${player}.`;
+  $("#kicked-hint").textContent = msg.same
+    ? "Close the other one (QR scanner apps often open the page in their own browser), " +
+      "then take control back."
+    : "Two phones on the same player keep taking it from each other: give each phone its " +
+      "own player.";
+  const other = player === 1 ? 2 : 1;
+  const otherBtn = $("#other-player-btn");
+  otherBtn.textContent = `Drive as Player ${other} instead`;
+  otherBtn.onclick = () => {
+    $("#kicked").hidden = true;
+    switchPlayer(other);
+  };
+  $("#kicked").hidden = false;
+}
 
 $("#reclaim-btn").addEventListener("click", () => {
   $("#kicked").hidden = true;
